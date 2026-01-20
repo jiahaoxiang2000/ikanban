@@ -126,6 +126,22 @@ impl WebSocketClient {
         );
         Self::new(&url, event_tx)
     }
+
+    /// Create a WebSocket client for execution logs stream
+    pub fn execution_logs(
+        server_url: &str,
+        execution_id: uuid::Uuid,
+        event_tx: mpsc::UnboundedSender<WsEvent>,
+    ) -> Self {
+        let ws_base = server_url
+            .replace("http://", "ws://")
+            .replace("https://", "wss://");
+        let url = format!(
+            "{}/api/executions/{}/logs/stream",
+            ws_base, execution_id
+        );
+        Self::new(&url, event_tx)
+    }
 }
 
 /// Extension trait for displaying event types

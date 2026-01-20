@@ -1,4 +1,6 @@
 // Re-export core entities
+pub use ikanban_core::entities::execution_process::Model as ExecutionProcess;
+pub use ikanban_core::entities::execution_process_logs::Model as ExecutionProcessLog;
 pub use ikanban_core::entities::project::{
     CreateProject, Model as Project, ProjectWithStatus, UpdateProject,
 };

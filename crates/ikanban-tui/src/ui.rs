@@ -1,8 +1,8 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
+    text::{Line, Span, Text},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
     Frame,
 };
 
@@ -26,6 +26,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
         View::ProjectDetail => draw_project_detail_view(frame, app, chunks[1]),
         View::Tasks => draw_tasks_view(frame, app, chunks[1]),
         View::TaskDetail => draw_task_detail_view(frame, app, chunks[1]),
+        View::ExecutionLogs => draw_execution_logs_view(frame, app, chunks[1]),
     }
 
     draw_status_bar(frame, app, chunks[2]);
@@ -63,6 +64,17 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
                 format!(" iKanban - Task: {} ", task.title)
             } else {
                 " iKanban - Task Details ".to_string()
+            }
+        }
+        View::ExecutionLogs => {
+            if let Some(execution) = app.selected_execution() {
+                format!(
+                    " iKanban - Execution: {} ({}) ",
+                    execution.id.to_string().chars().take(8).collect::<String>(),
+                    execution.status
+                )
+            } else {
+                " iKanban - Execution Logs ".to_string()
             }
         }
     };
@@ -337,6 +349,9 @@ fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         View::ProjectDetail => "j/k: Navigate | Enter: Open Tasks | ?: Help",
         View::Tasks => "h/l: Columns | j/k: Navigate | Enter: Details | ?: Help",
         View::TaskDetail => "Esc: Back | ?: Help",
+        View::ExecutionLogs => {
+            "j/k: Navigate | g/G: Top/Bottom | Enter: Details | s: Stop | r: Refresh | ?: Help"
+        }
     };
 
     let status = if let Some(msg) = &app.status_message {
@@ -378,24 +393,68 @@ fn draw_input_popup(frame: &mut Frame, app: &App) {
         InputField::None => "Input",
     };
 
-    let area = centered_rect(60, 20, frame.area());
+    // Calculate popup size based on content
+    let lines: Vec<&str> = if app.input.is_empty() {
+        vec![""]
+    } else {
+        app.input.lines().collect()
+    };
+
+    let max_line_width = lines.iter().map(|l| l.len()).max().unwrap_or(10);
+    let line_count = lines.len().max(1);
+
+    // Define reasonable limits and convert to u16
+    let popup_width_u16 = (max_line_width + 6).min(80).max(30) as u16;
+    let popup_height_u16 = (line_count + 4).min(20).max(6) as u16;
+
+    // Convert to percentage for centered_rect
+    let term_size = frame.size();
+    let percent_x = (popup_width_u16 * 100 / term_size.width).max(1).min(100);
+    let percent_y = (popup_height_u16 * 100 / term_size.height).max(1).min(100);
+
+    let area = centered_rect(percent_x, percent_y, frame.area());
 
     // Clear the background
     frame.render_widget(Clear, area);
 
-    let input = Paragraph::new(app.input.as_str())
+    // Create the text with proper styling
+    let text = if app.input.is_empty() {
+        ratatui::text::Text::raw("")
+    } else {
+        ratatui::text::Text::from(app.input.clone())
+    };
+
+    let input = Paragraph::new(text)
         .style(Style::default().fg(Color::Yellow))
         .block(
             Block::default()
                 .title(format!(" {} ", title))
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::Cyan)),
-        );
+        )
+        .scroll((0, 0)); // Could add scrolling for long content
 
     frame.render_widget(input, area);
 
-    // Set cursor position
-    frame.set_cursor_position((area.x + app.input.len() as u16 + 1, area.y + 1));
+    // Calculate cursor position
+    // The cursor should be at the position corresponding to input_cursor_row and input_cursor_col
+    let cursor_line = app.input_cursor_row.min(line_count.saturating_sub(1));
+    let cursor_col = if cursor_line < lines.len() {
+        app.input_cursor_col.min(lines[cursor_line].len())
+    } else {
+        app.input_cursor_col
+    };
+
+    // Position cursor at (area.x + cursor_col + 1, area.y + cursor_line + 1)
+    // Add some padding for the block border
+    let cursor_x = area.x + 1 + cursor_col as u16;
+    let cursor_y = area.y + 1 + cursor_line as u16;
+
+    // Make sure cursor is within the popup bounds
+    let cursor_x = cursor_x.min(area.x + area.width - 2);
+    let cursor_y = cursor_y.min(area.y + area.height - 2);
+
+    frame.set_cursor_position((cursor_x, cursor_y));
 }
 
 fn draw_help_modal(frame: &mut Frame, app: &App) {
@@ -488,6 +547,131 @@ fn draw_help_modal(frame: &mut Frame, app: &App) {
         .style(Style::default().fg(Color::DarkGray))
         .block(Block::default());
     frame.render_widget(footer, footer_area);
+}
+
+/// Draw the execution logs view
+fn draw_execution_logs_view(frame: &mut Frame, app: &App, area: Rect) {
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(30), // Execution list
+            Constraint::Percentage(70), // Log content
+        ])
+        .split(area);
+
+    // Draw execution list on the left
+    draw_execution_list(frame, app, chunks[0]);
+
+    // Draw log content on the right
+    draw_log_content(frame, app, chunks[1]);
+}
+
+/// Draw the list of executions for the current session
+fn draw_execution_list(frame: &mut Frame, app: &App, area: Rect) {
+    let items: Vec<ListItem> = app
+        .executions
+        .iter()
+        .enumerate()
+        .map(|(i, execution)| {
+            let style = if i == app.selected_execution_index {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                match execution.status.as_str() {
+                    "running" => Style::default().fg(Color::Green),
+                    "failed" => Style::default().fg(Color::Red),
+                    "killed" => Style::default().fg(Color::DarkGray),
+                    _ => Style::default().fg(Color::White),
+                }
+            };
+
+            let status = execution.status.clone();
+            let id_short = execution.id.to_string().chars().take(8).collect::<String>();
+            ListItem::new(format!("{} [{}]", id_short, status)).style(style)
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .title(format!(" Executions ({}) ", app.executions.len()))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::White)),
+        )
+        .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+
+    frame.render_widget(list, area);
+}
+
+/// Draw the log content for the selected execution
+fn draw_log_content(frame: &mut Frame, app: &App, area: Rect) {
+    if app.current_execution_logs.is_empty() {
+        let no_logs = Paragraph::new("No logs available")
+            .style(Style::default().fg(Color::Gray))
+            .block(
+                Block::default()
+                    .title(" Logs ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan)),
+            );
+        frame.render_widget(no_logs, area);
+        return;
+    }
+
+    // Get visible logs based on line offset
+    let visible_area_height = area.height.saturating_sub(2) as usize; // Account for borders
+    let logs_to_show = app
+        .current_execution_logs
+        .iter()
+        .skip(app.log_view_line_offset)
+        .take(visible_area_height)
+        .collect::<Vec<_>>();
+
+    // Build log text with styling
+    let mut log_text = Text::default();
+    for log in logs_to_show {
+        let level_color = match log.level.to_lowercase().as_str() {
+            "error" => Color::Red,
+            "warn" => Color::Yellow,
+            "debug" => Color::DarkGray,
+            "trace" => Color::Indexed(108), // A teal/cyan-like color
+            _ => Color::White,
+        };
+
+        let timestamp = log.timestamp.format("%H:%M:%S").to_string();
+        let level = log.level.to_uppercase();
+
+        log_text.extend(vec![Line::from(vec![
+            Span::styled(
+                format!("[{}] ", timestamp),
+                Style::default().fg(Color::DarkGray),
+            ),
+            Span::styled(
+                format!("{:>5} ", level),
+                Style::default()
+                    .fg(level_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(&log.message, Style::default().fg(Color::White)),
+        ])]);
+    }
+
+    let log_para = Paragraph::new(log_text)
+        .block(
+            Block::default()
+                .title(format!(
+                    " Logs ({} total, showing from line {}) ",
+                    app.current_execution_logs.len(),
+                    app.log_view_line_offset + 1
+                ))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan)),
+        )
+        .wrap(Wrap { trim: true })
+        .scroll((0, 0)); // We'll handle scrolling manually via line offset
+
+    frame.render_widget(log_para, area);
 }
 
 /// Helper function to create a centered rect

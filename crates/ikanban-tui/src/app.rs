@@ -3,7 +3,8 @@ use uuid::Uuid;
 
 use crate::api::ApiClient;
 use crate::models::{
-    CreateProject, CreateTask, Project, Task, TaskStatus, TaskStatusExt, UpdateTask, WsEvent,
+    CreateProject, CreateTask, ExecutionProcess, ExecutionProcessLog, Project, Task, TaskStatus,
+    TaskStatusExt, UpdateTask, WsEvent,
 };
 use crate::ws::WebSocketClient;
 
@@ -14,6 +15,7 @@ pub enum View {
     ProjectDetail,
     Tasks,
     TaskDetail,
+    ExecutionLogs,
 }
 
 /// Input mode for text entry
@@ -30,6 +32,8 @@ pub struct App {
     pub input_mode: InputMode,
     pub input: String,
     pub input_field: InputField,
+    pub input_cursor_row: usize,
+    pub input_cursor_col: usize,
 
     // Projects
     pub projects: Vec<Project>,
@@ -58,6 +62,14 @@ pub struct App {
     // Help modal state
     pub show_help_modal: bool,
     pub help_modal_selected: usize,
+
+    // Execution logs state
+    pub executions: Vec<ExecutionProcess>,
+    pub selected_execution_index: usize,
+    pub current_execution_logs: Vec<ExecutionProcessLog>,
+    pub log_view_line_offset: usize,
+    pub current_session_id: Option<Uuid>,
+    pub execution_logs_ws: Option<WebSocketClient>,
 }
 
 /// Which field is being edited
@@ -82,6 +94,8 @@ impl App {
             input_mode: InputMode::Normal,
             input: String::new(),
             input_field: InputField::None,
+            input_cursor_row: 0,
+            input_cursor_col: 0,
             projects: Vec::new(),
             selected_project_index: 0,
             project_detail: None,
@@ -98,6 +112,12 @@ impl App {
             current_project_id: None,
             show_help_modal: false,
             help_modal_selected: 0,
+            executions: Vec::new(),
+            selected_execution_index: 0,
+            current_execution_logs: Vec::new(),
+            log_view_line_offset: 0,
+            current_session_id: None,
+            execution_logs_ws: None,
         }
     }
 
@@ -153,6 +173,15 @@ impl App {
                 ("?".to_string(), "Show help".to_string()),
                 ("Esc".to_string(), "Go back".to_string()),
             ],
+            View::ExecutionLogs => vec![
+                ("j / k".to_string(), "Navigate logs".to_string()),
+                ("g / G".to_string(), "Go to top/bottom".to_string()),
+                ("Enter".to_string(), "View execution details".to_string()),
+                ("s".to_string(), "Stop execution".to_string()),
+                ("r".to_string(), "Refresh logs".to_string()),
+                ("?".to_string(), "Show help".to_string()),
+                ("Esc".to_string(), "Go back".to_string()),
+            ],
         }
     }
 
@@ -163,6 +192,7 @@ impl App {
             View::ProjectDetail => "Project Detail Shortcuts",
             View::Tasks => "Tasks View Shortcuts",
             View::TaskDetail => "Task Detail Shortcuts",
+            View::ExecutionLogs => "Execution Logs Shortcuts",
         }
         .to_string()
     }
@@ -214,6 +244,117 @@ impl App {
     pub fn disconnect_tasks_ws(&mut self) {
         self.tasks_ws = None;
         self.current_project_id = None;
+    }
+
+    /// Connect to execution logs WebSocket stream
+    pub fn connect_execution_logs_ws(&mut self, execution_id: Uuid) {
+        let event_tx = self
+            .ws_event_tx()
+            .expect("WebSocket event channel should be available");
+        self.execution_logs_ws = Some(WebSocketClient::execution_logs(
+            &self.api.base_url(),
+            execution_id,
+            event_tx,
+        ));
+        self.set_status(&format!("Connected to logs stream for execution {}", execution_id));
+    }
+
+    /// Disconnect from execution logs WebSocket stream
+    pub fn disconnect_execution_logs_ws(&mut self) {
+        self.execution_logs_ws = None;
+    }
+
+    /// Load executions for a session
+    pub async fn load_executions(&mut self, session_id: Uuid) -> anyhow::Result<()> {
+        self.current_session_id = Some(session_id);
+        self.executions = self.api.list_executions(session_id).await?;
+        self.selected_execution_index = 0;
+        Ok(())
+    }
+
+    /// Load logs for the selected execution
+    pub async fn load_execution_logs(&mut self) -> anyhow::Result<()> {
+        if let Some(execution) = self.selected_execution() {
+            let execution_id = execution.id;
+            self.current_execution_logs = self.api.get_execution_logs(execution_id, None).await?;
+            self.connect_execution_logs_ws(execution_id);
+        }
+        Ok(())
+    }
+
+    /// Stop the selected execution
+    pub async fn stop_selected_execution(&mut self) -> anyhow::Result<()> {
+        if let Some(execution) = self.selected_execution() {
+            let execution_id = execution.id;
+            let session_id = execution.session_id;
+            self.api.stop_execution(execution_id).await?;
+            self.set_status(&format!("Stopped execution {}", execution_id));
+            self.load_executions(session_id).await?;
+        }
+        Ok(())
+    }
+
+    /// Get the currently selected execution
+    pub fn selected_execution(&self) -> Option<&ExecutionProcess> {
+        self.executions.get(self.selected_execution_index)
+    }
+
+    /// Navigation methods for execution logs
+    pub fn next_log_line(&mut self) {
+        let max_offset = self.current_execution_logs.len().saturating_sub(1);
+        if self.log_view_line_offset < max_offset {
+            self.log_view_line_offset += 1;
+        }
+    }
+
+    pub fn previous_log_line(&mut self) {
+        if self.log_view_line_offset > 0 {
+            self.log_view_line_offset -= 1;
+        }
+    }
+
+    pub fn scroll_to_top(&mut self) {
+        self.log_view_line_offset = 0;
+    }
+
+    pub fn scroll_to_bottom(&mut self) {
+        self.log_view_line_offset = self.current_execution_logs.len().saturating_sub(1);
+    }
+
+    pub fn next_execution(&mut self) {
+        if !self.executions.is_empty() {
+            self.selected_execution_index = (self.selected_execution_index + 1) % self.executions.len();
+        }
+    }
+
+    pub fn previous_execution(&mut self) {
+        if !self.executions.is_empty() {
+            self.selected_execution_index = if self.selected_execution_index == 0 {
+                self.executions.len() - 1
+            } else {
+                self.selected_execution_index - 1
+            };
+        }
+    }
+
+    /// Enter execution logs view
+    pub async fn enter_execution_logs_view(&mut self, session_id: Uuid) -> anyhow::Result<()> {
+        self.view = View::ExecutionLogs;
+        self.log_view_line_offset = 0;
+        self.load_executions(session_id).await?;
+        if !self.executions.is_empty() {
+            self.load_execution_logs().await?;
+        }
+        Ok(())
+    }
+
+    /// Leave execution logs view
+    pub fn leave_execution_logs_view(&mut self) {
+        self.disconnect_execution_logs_ws();
+        self.view = View::TaskDetail;
+        self.current_session_id = None;
+        self.executions = Vec::new();
+        self.current_execution_logs = Vec::new();
     }
 
     /// Get the event transmitter for WebSocket clients
@@ -303,16 +444,53 @@ impl App {
                 self.set_status("WebSocket connected");
             }
             WsEvent::Log {
-                execution_id: _,
+                execution_id,
                 content,
             } => {
+                // Add log to the current execution logs if viewing that execution
+                if self.view == View::ExecutionLogs {
+                    if let Some(execution) = self.selected_execution() {
+                        if execution.id == execution_id {
+                            // Create a new log entry from the streamed content
+                            let log = ExecutionProcessLog {
+                                id: Uuid::new_v4(),
+                                execution_process_id: execution_id,
+                                level: "info".to_string(),
+                                message: content.clone(),
+                                timestamp: chrono::Utc::now().naive_utc(),
+                                created_at: chrono::Utc::now().naive_utc(),
+                            };
+                            self.current_execution_logs.push(log);
+                            // Auto-scroll to bottom if already at bottom
+                            if self.log_view_line_offset >= self.current_execution_logs.len().saturating_sub(2) {
+                                self.scroll_to_bottom();
+                            }
+                        }
+                    }
+                }
                 tracing::info!("Log: {}", content);
             }
-            // Session, Execution, Merge events - log them for now
-            WsEvent::SessionCreated(_) => tracing::debug!("Session created"),
-            WsEvent::SessionUpdated(_) => tracing::debug!("Session updated"),
-            WsEvent::ExecutionCreated(_) => tracing::debug!("Execution created"),
-            WsEvent::ExecutionUpdated(_) => tracing::debug!("Execution updated"),
+            WsEvent::SessionCreated(session) => {
+                tracing::debug!("Session created: {}", session.id);
+            }
+            WsEvent::SessionUpdated(session) => {
+                tracing::debug!("Session updated: {}", session.id);
+            }
+            WsEvent::ExecutionCreated(execution) => {
+                tracing::debug!("Execution created: {}", execution.id);
+                // If we're viewing executions for this session, reload
+                if self.view == View::ExecutionLogs && self.current_session_id == Some(execution.session_id) {
+                    let session_id = execution.session_id;
+                    let _ = self.load_executions(session_id);
+                }
+            }
+            WsEvent::ExecutionUpdated(execution) => {
+                tracing::debug!("Execution updated: {}", execution.id);
+                // Update the execution in our list
+                if let Some(existing) = self.executions.iter_mut().find(|e| e.id == execution.id) {
+                    *existing = execution.clone();
+                }
+            }
             WsEvent::DirectMergeCreated(_) => tracing::debug!("Direct merge created"),
             WsEvent::PrMergeCreated(_) => tracing::debug!("PR merge created"),
             WsEvent::PrMergeUpdated(_) => tracing::debug!("PR merge updated"),
@@ -575,6 +753,8 @@ impl App {
         self.input_mode = InputMode::Editing;
         self.input_field = field;
         self.input.clear();
+        self.input_cursor_row = 0;
+        self.input_cursor_col = 0;
     }
 
     pub fn cancel_input(&mut self) {
@@ -583,8 +763,244 @@ impl App {
         self.input.clear();
     }
 
+    /// Get the current line of text at the cursor position
+    fn get_current_line(&self) -> &str {
+        let line_idx = self.input_cursor_row.min(
+            self.input.lines().count().saturating_sub(1)
+        );
+        self.input.lines().nth(line_idx).unwrap_or("")
+    }
+
+    /// Get the total number of lines in the input
+    fn input_line_count(&self) -> usize {
+        if self.input.is_empty() {
+            1
+        } else {
+            self.input.lines().count()
+        }
+    }
+
+    /// Move cursor left by one character
+    pub fn move_cursor_left(&mut self) {
+        if self.input_cursor_col > 0 {
+            self.input_cursor_col -= 1;
+        } else if self.input_cursor_row > 0 {
+            // Move to end of previous line
+            self.input_cursor_row -= 1;
+            self.input_cursor_col = self.get_current_line().len();
+        }
+    }
+
+    /// Move cursor right by one character
+    pub fn move_cursor_right(&mut self) {
+        let current_line = self.get_current_line();
+        if self.input_cursor_col < current_line.len() {
+            self.input_cursor_col += 1;
+        } else if self.input_cursor_row < self.input_line_count().saturating_sub(1) {
+            // Move to start of next line
+            self.input_cursor_row += 1;
+            self.input_cursor_col = 0;
+        }
+    }
+
+    /// Move cursor up by one line
+    pub fn move_cursor_up(&mut self) {
+        if self.input_cursor_row > 0 {
+            self.input_cursor_row -= 1;
+            // Clamp column to current line length
+            let line_len = self.get_current_line().len();
+            if self.input_cursor_col > line_len {
+                self.input_cursor_col = line_len;
+            }
+        }
+    }
+
+    /// Move cursor down by one line
+    pub fn move_cursor_down(&mut self) {
+        let line_count = self.input_line_count();
+        if self.input_cursor_row < line_count.saturating_sub(1) {
+            self.input_cursor_row += 1;
+            // Clamp column to current line length
+            let line_len = self.get_current_line().len();
+            if self.input_cursor_col > line_len {
+                self.input_cursor_col = line_len;
+            }
+        }
+    }
+
+    /// Move cursor to the start of the current line
+    pub fn move_cursor_home(&mut self) {
+        self.input_cursor_col = 0;
+    }
+
+    /// Move cursor to the end of the current line
+    pub fn move_cursor_end(&mut self) {
+        self.input_cursor_col = self.get_current_line().len();
+    }
+
+    /// Insert a character at the cursor position
+    pub fn insert_char(&mut self, c: char) {
+        let lines: Vec<&str> = if self.input.is_empty() {
+            vec![""]
+        } else {
+            self.input.lines().collect()
+        };
+
+        let mut new_lines: Vec<String> = lines.iter().map(|s| s.to_string()).collect();
+        let row = self.input_cursor_row.min(new_lines.len().saturating_sub(1));
+
+        // Ensure we have enough lines
+        while new_lines.len() <= row {
+            new_lines.push(String::new());
+        }
+
+        let line = &mut new_lines[row];
+        let col = self.input_cursor_col.min(line.len());
+
+        line.insert(col, c);
+        self.input_cursor_col += 1;
+
+        self.input = new_lines.join("\n");
+    }
+
+    /// Insert a newline at the cursor position
+    pub fn insert_newline(&mut self) {
+        let lines: Vec<&str> = if self.input.is_empty() {
+            vec![""]
+        } else {
+            self.input.lines().collect()
+        };
+
+        let mut new_lines: Vec<String> = lines.iter().map(|s| s.to_string()).collect();
+        let row = self.input_cursor_row.min(new_lines.len().saturating_sub(1));
+
+        // Ensure we have enough lines
+        while new_lines.len() <= row {
+            new_lines.push(String::new());
+        }
+
+        let line = &mut new_lines[row];
+        let col = self.input_cursor_col.min(line.len());
+
+        // Split the line at the cursor
+        let after_cursor = line[col..].to_string();
+        line.truncate(col);
+
+        // Insert new line after current
+        new_lines.insert(row + 1, after_cursor);
+
+        self.input_cursor_row += 1;
+        self.input_cursor_col = 0;
+
+        self.input = new_lines.join("\n");
+    }
+
+    /// Delete character before cursor (Backspace)
+    pub fn delete_backward(&mut self) {
+        if self.input_cursor_col > 0 {
+            // Delete character in current line
+            let lines: Vec<&str> = if self.input.is_empty() {
+                return;
+            } else {
+                self.input.lines().collect()
+            };
+
+            let mut new_lines: Vec<String> = lines.iter().map(|s| s.to_string()).collect();
+            let row = self.input_cursor_row.min(new_lines.len().saturating_sub(1));
+
+            let line = &mut new_lines[row];
+            let col = self.input_cursor_col;
+
+            if !line.is_empty() && col > 0 {
+                line.remove(col - 1);
+                self.input_cursor_col -= 1;
+                self.input = new_lines.join("\n");
+            }
+        } else if self.input_cursor_row > 0 {
+            // Delete newline and merge with previous line
+            let lines: Vec<&str> = self.input.lines().collect();
+            if lines.len() <= 1 {
+                return;
+            }
+
+            let mut new_lines: Vec<String> = lines.iter().map(|s| s.to_string()).collect();
+            let row = self.input_cursor_row;
+            let current_line_len = new_lines[row].len();
+
+            // Remove the line to be merged
+            let next_line = new_lines.remove(row);
+
+            // Now borrow prev_line
+            let prev_line = &mut new_lines[row - 1];
+            prev_line.push_str(&next_line);
+
+            self.input_cursor_row -= 1;
+            self.input_cursor_col = prev_line.len() - current_line_len;
+
+            self.input = new_lines.join("\n");
+        }
+    }
+
+    /// Delete character at cursor (Delete key)
+    pub fn delete_forward(&mut self) {
+        let current_line = self.get_current_line();
+        if self.input_cursor_col < current_line.len() {
+            // Delete character in current line
+            let lines: Vec<&str> = if self.input.is_empty() {
+                return;
+            } else {
+                self.input.lines().collect()
+            };
+
+            let mut new_lines: Vec<String> = lines.iter().map(|s| s.to_string()).collect();
+            let row = self.input_cursor_row.min(new_lines.len().saturating_sub(1));
+
+            let line = &mut new_lines[row];
+            let col = self.input_cursor_col;
+
+            if !line.is_empty() && col < line.len() {
+                line.remove(col);
+                self.input = new_lines.join("\n");
+            }
+        } else if self.input_cursor_row < self.input_line_count().saturating_sub(1) {
+            // Delete newline and merge with next line
+            let lines: Vec<&str> = self.input.lines().collect();
+            if lines.len() <= 1 {
+                return;
+            }
+
+            let mut new_lines: Vec<String> = lines.iter().map(|s| s.to_string()).collect();
+            let row = self.input_cursor_row;
+
+            // Remove next line first
+            let next_line = new_lines.remove(row + 1);
+
+            // Now borrow current line
+            let current_line = &mut new_lines[row];
+            current_line.push_str(&next_line);
+
+            self.input = new_lines.join("\n");
+        }
+    }
+
     pub async fn submit_input(&mut self) -> anyhow::Result<()> {
-        let input = self.input.trim().to_string();
+        // For descriptions, allow multi-line input
+        // For names/titles, trim whitespace
+        let input = match self.input_field {
+            InputField::ProjectDescription | InputField::TaskDescription => {
+                // Remove leading/trailing empty lines but preserve internal newlines
+                let lines: Vec<&str> = self.input.lines().collect();
+                let start = lines.iter().position(|s| !s.trim().is_empty()).unwrap_or(lines.len());
+                let end = lines.iter().rposition(|s| !s.trim().is_empty()).unwrap_or(0);
+                if start > end {
+                    String::new()
+                } else {
+                    lines[start..=end].join("\n")
+                }
+            }
+            _ => self.input.trim().to_string(),
+        };
+
         if input.is_empty() {
             self.cancel_input();
             return Ok(());

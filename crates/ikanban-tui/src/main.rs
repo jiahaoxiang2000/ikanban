@@ -88,7 +88,7 @@ async fn run_app(
                     }
                 }
                 InputMode::Editing => {
-                    handle_editing_mode(app, key.code).await?;
+                    handle_editing_mode(app, key.code, key.modifiers).await?;
                 }
             }
         }
@@ -221,26 +221,98 @@ async fn handle_normal_mode(app: &mut App, key_code: KeyCode, key_modifiers: Key
             }
             _ => {}
         },
+        View::ExecutionLogs => match key_code {
+            KeyCode::Char('q') | KeyCode::Esc => {
+                app.leave_execution_logs_view();
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                app.next_log_line();
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                app.previous_log_line();
+            }
+            KeyCode::Char('g') => {
+                app.scroll_to_top();
+            }
+            KeyCode::Char('G') => {
+                app.scroll_to_bottom();
+            }
+            KeyCode::Char('r') => {
+                if let Err(e) = app.load_execution_logs().await {
+                    app.set_status(&format!("Error: {}", e));
+                } else {
+                    app.set_status("Logs refreshed");
+                }
+            }
+            KeyCode::Char('s') => {
+                if let Err(e) = app.stop_selected_execution().await {
+                    app.set_status(&format!("Error: {}", e));
+                }
+            }
+            KeyCode::Enter => {
+                // Could show execution details here
+                if let Some(execution) = app.selected_execution() {
+                    app.set_status(&format!("Viewing execution: {}", execution.id));
+                }
+            }
+            _ => {}
+        },
     }
 
     Ok(true)
 }
 
-async fn handle_editing_mode(app: &mut App, key: KeyCode) -> anyhow::Result<()> {
-    match key {
+async fn handle_editing_mode(app: &mut App, key_code: KeyCode, key_modifiers: KeyModifiers) -> anyhow::Result<()> {
+    match key_code {
+        // Enter inserts a newline
         KeyCode::Enter => {
-            if let Err(e) = app.submit_input().await {
-                app.set_status(&format!("Error: {}", e));
+            // Check if we should submit (Ctrl+Enter or Ctrl+J) or insert newline
+            if key_modifiers.contains(KeyModifiers::CONTROL) || key_code == KeyCode::Char('j') {
+                if let Err(e) = app.submit_input().await {
+                    app.set_status(&format!("Error: {}", e));
+                }
+            } else {
+                app.insert_newline();
             }
         }
+        // Escape cancels editing
         KeyCode::Esc => {
             app.cancel_input();
         }
+        // Backspace deletes backward
         KeyCode::Backspace => {
-            app.input.pop();
+            app.delete_backward();
         }
+        // Delete deletes forward
+        KeyCode::Delete => {
+            app.delete_forward();
+        }
+        // Arrow keys for navigation
+        KeyCode::Left => {
+            app.move_cursor_left();
+        }
+        KeyCode::Right => {
+            app.move_cursor_right();
+        }
+        KeyCode::Up => {
+            app.move_cursor_up();
+        }
+        KeyCode::Down => {
+            app.move_cursor_down();
+        }
+        // Home/End for line navigation
+        KeyCode::Home => {
+            app.move_cursor_home();
+        }
+        KeyCode::End => {
+            app.move_cursor_end();
+        }
+        // Character input
         KeyCode::Char(c) => {
-            app.input.push(c);
+            // Don't insert control characters directly
+            if !c.is_control() {
+                app.insert_char(c);
+            }
         }
         _ => {}
     }
