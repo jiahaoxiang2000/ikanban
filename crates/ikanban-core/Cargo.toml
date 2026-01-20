@@ -18,7 +18,8 @@ tokio = { workspace = true }
 axum = { workspace = true }
 
 # Database
-sqlx = { workspace = true }
+sea-orm = { workspace = true }
+sea-orm-migration = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
@@ -28,6 +29,7 @@ serde_json = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
+async-trait = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

@@ -22,9 +22,7 @@ async fn main() -> anyhow::Result<()> {
         .with(filter)
         .init();
 
-    // Database URL from environment or default to .ikanban/data/db.sqlite
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| format!("sqlite://{}", get_database_path().to_string_lossy()));
+
 
     // Ensure the database directory exists
     let db_path = get_database_path();
@@ -35,11 +33,19 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // For SeaORM SQLite, we need to ensure the file exists first
+    if !db_path.exists() {
+        std::fs::File::create(&db_path)?;
+        tracing::info!("Created database file: {}", db_path.display());
+    }
+
+    // SeaORM uses sqlite:// prefix (not sqlite://)
+    let database_url = format!("sqlite://{}?mode=rwc", db_path.to_string_lossy());
     tracing::info!("Connecting to database: {}", database_url);
-    let pool = db::create_pool(&database_url).await?;
+    let db = db::create_connection(&database_url).await?;
 
     // Create application state
-    let state = AppState::new(pool);
+    let state = AppState::new(db);
 
     // Build router
     let app = routes::router(state);

@@ -17,7 +17,7 @@ use crate::{
 pub async fn list_projects(
     State(state): State<AppState>,
 ) -> Result<Json<ApiResponse<Vec<ProjectWithStatus>>>, AppError> {
-    let projects = Project::find_all_with_status(&state.pool).await?;
+    let projects = Project::find_all_with_status(&state.db).await?;
     Ok(Json(ApiResponse::success(projects)))
 }
 
@@ -25,7 +25,7 @@ pub async fn list_projects(
 pub async fn list_active_projects(
     State(state): State<AppState>,
 ) -> Result<Json<ApiResponse<Vec<ProjectWithStatus>>>, AppError> {
-    let projects = Project::find_most_active(&state.pool).await?;
+    let projects = Project::find_most_active(&state.db).await?;
     Ok(Json(ApiResponse::success(projects)))
 }
 
@@ -38,7 +38,7 @@ pub async fn create_project(
         return Err(AppError::BadRequest("Project name cannot be empty".to_string()));
     }
 
-    let project = Project::create(&state.pool, &payload).await?;
+    let project = Project::create(&state.db, &payload).await?;
 
     // Broadcast event
     state.broadcast(WsEvent::ProjectCreated(project.clone()));
@@ -52,7 +52,7 @@ pub async fn get_project(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ApiResponse<Project>>, AppError> {
-    let project = Project::find_by_id(&state.pool, id)
+    let project = Project::find_by_id(&state.db, id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Project {} not found", id)))?;
 
@@ -65,7 +65,7 @@ pub async fn update_project(
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateProject>,
 ) -> Result<Json<ApiResponse<Project>>, AppError> {
-    let project = Project::update(&state.pool, id, &payload)
+    let project = Project::update(&state.db, id, &payload)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Project {} not found", id)))?;
 
@@ -82,10 +82,10 @@ pub async fn delete_project(
     Path(id): Path<Uuid>,
 ) -> Result<Json<ApiResponse<()>>, AppError> {
     // First delete all tasks associated with this project
-    let tasks_deleted = crate::models::Task::delete_by_project_id(&state.pool, id).await?;
+    let tasks_deleted = crate::models::Task::delete_by_project_id(&state.db, id).await?;
     tracing::debug!("Deleted {} tasks for project {}", tasks_deleted, id);
 
-    let deleted = Project::delete(&state.pool, id).await?;
+    let deleted = Project::delete(&state.db, id).await?;
 
     if !deleted {
         return Err(AppError::NotFound(format!("Project {} not found", id)));

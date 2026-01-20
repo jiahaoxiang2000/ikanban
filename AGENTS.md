@@ -94,5 +94,17 @@ PrMerge { id, project_id, target_branch, pr_number, pr_url, status, merged_at, c
 
 ## Tech Stack
 
-- **Core**: axum, tokio, sqlx (SQLite), serde, uuid, chrono, tracing
+- **Core**: axum, tokio, sea-orm (SQLite), serde, uuid, chrono, tracing
 - **TUI**: ratatui, crossterm, reqwest, tokio-tungstenite
+
+## Database & Migrations
+
+Uses **SeaORM** with auto-migrations:
+
+- **Entities**: `crates/ikanban-core/src/entities/` - Define schema as Rust structs
+- **Migrations**: `crates/ikanban-core/src/migrator/` - Versioned migrations
+- Migrations run automatically on startup via `Migrator::up()`
+- To add new tables/columns:
+  1. Create new migration file in `migrator/` (e.g., `m20240102_000002_add_sessions.rs`)
+  2. Add to `migrator/mod.rs` migrations list
+  3. Create/update entity in `entities/`

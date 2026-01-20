@@ -20,11 +20,11 @@ pub async fn list_tasks(
     Query(query): Query<TaskQuery>,
 ) -> Result<Json<ApiResponse<Vec<Task>>>, AppError> {
     // Verify project exists
-    let _ = Project::find_by_id(&state.pool, query.project_id)
+    let _ = Project::find_by_id(&state.db, query.project_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Project {} not found", query.project_id)))?;
 
-    let tasks = Task::find_by_project_id(&state.pool, query.project_id).await?;
+    let tasks = Task::find_by_project_id(&state.db, query.project_id).await?;
     Ok(Json(ApiResponse::success(tasks)))
 }
 
@@ -38,11 +38,11 @@ pub async fn create_task(
     }
 
     // Verify project exists
-    let _ = Project::find_by_id(&state.pool, payload.project_id)
+    let _ = Project::find_by_id(&state.db, payload.project_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Project {} not found", payload.project_id)))?;
 
-    let task = Task::create(&state.pool, &payload).await?;
+    let task = Task::create(&state.db, &payload).await?;
 
     // Broadcast event
     state.broadcast(WsEvent::TaskCreated(task.clone()));
@@ -61,7 +61,7 @@ pub async fn get_task(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ApiResponse<Task>>, AppError> {
-    let task = Task::find_by_id(&state.pool, id)
+    let task = Task::find_by_id(&state.db, id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Task {} not found", id)))?;
 
@@ -74,7 +74,7 @@ pub async fn update_task(
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateTask>,
 ) -> Result<Json<ApiResponse<Task>>, AppError> {
-    let task = Task::update(&state.pool, id, &payload)
+    let task = Task::update(&state.db, id, &payload)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Task {} not found", id)))?;
 
@@ -90,7 +90,7 @@ pub async fn delete_task(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ApiResponse<()>>, AppError> {
-    let deleted = Task::delete(&state.pool, id).await?;
+    let deleted = Task::delete(&state.db, id).await?;
 
     if !deleted {
         return Err(AppError::NotFound(format!("Task {} not found", id)));

@@ -1,19 +1,15 @@
-use chrono::{DateTime, Utc};
+use chrono::Utc;
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, PaginatorTrait,
+    QueryFilter, QueryOrder, Set,
+};
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct Project {
-    pub id: Uuid,
-    pub name: String,
-    pub description: Option<String>,
-    pub repo_path: Option<String>,
-    pub archived: bool,
-    pub pinned: bool,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
+use crate::entities::{project, task, Project as ProjectEntity};
+
+// Re-export the entity model as Project
+pub type Project = project::Model;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateProject {
@@ -31,9 +27,9 @@ pub struct UpdateProject {
     pub pinned: Option<bool>,
 }
 
-#[derive(Debug, Serialize, FromRow)]
+#[derive(Debug, Serialize)]
 pub struct ProjectWithStatus {
-    #[sqlx(flatten)]
+    #[serde(flatten)]
     pub project: Project,
     pub is_running: bool,
     pub is_errored: bool,
@@ -42,133 +38,111 @@ pub struct ProjectWithStatus {
 }
 
 impl Project {
-    pub async fn find_all(pool: &sqlx::SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as::<_, Self>("SELECT * FROM projects ORDER BY pinned DESC, updated_at DESC")
-            .fetch_all(pool)
+    pub async fn find_all(db: &DatabaseConnection) -> Result<Vec<Self>, DbErr> {
+        ProjectEntity::find()
+            .order_by_desc(project::Column::Pinned)
+            .order_by_desc(project::Column::UpdatedAt)
+            .all(db)
             .await
     }
 
-    pub async fn find_all_with_status(pool: &sqlx::SqlitePool) -> Result<Vec<ProjectWithStatus>, sqlx::Error> {
-        sqlx::query_as::<_, ProjectWithStatus>(
-            r#"
-            SELECT 
-                p.*,
-                (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) as task_count,
-                (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'in_progress') as active_task_count,
-                0 as is_running,
-                0 as is_errored
-            FROM projects p
-            ORDER BY p.pinned DESC, p.updated_at DESC
-            "#
-        )
-        .fetch_all(pool)
-        .await
+    pub async fn find_all_with_status(db: &DatabaseConnection) -> Result<Vec<ProjectWithStatus>, DbErr> {
+        let projects = Self::find_all(db).await?;
+        let mut result = Vec::with_capacity(projects.len());
+
+        for project in projects {
+            let task_count = task::Entity::find()
+                .filter(task::Column::ProjectId.eq(project.id))
+                .count(db)
+                .await? as i64;
+
+            let active_task_count = task::Entity::find()
+                .filter(task::Column::ProjectId.eq(project.id))
+                .filter(task::Column::Status.eq(task::TaskStatus::InProgress))
+                .count(db)
+                .await? as i64;
+
+            result.push(ProjectWithStatus {
+                project,
+                is_running: false,
+                is_errored: false,
+                task_count,
+                active_task_count,
+            });
+        }
+
+        Ok(result)
     }
 
-    pub async fn find_most_active(pool: &sqlx::SqlitePool) -> Result<Vec<ProjectWithStatus>, sqlx::Error> {
-        sqlx::query_as::<_, ProjectWithStatus>(
-            r#"
-            SELECT 
-                p.*,
-                (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) as task_count,
-                (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'in_progress') as active_task_count,
-                0 as is_running,
-                0 as is_errored
-            FROM projects p
-            ORDER BY active_task_count DESC, p.updated_at DESC
-            LIMIT 5
-            "#
-        )
-        .fetch_all(pool)
-        .await
+    pub async fn find_most_active(db: &DatabaseConnection) -> Result<Vec<ProjectWithStatus>, DbErr> {
+        let mut projects_with_status = Self::find_all_with_status(db).await?;
+        
+        // Sort by active_task_count desc, then updated_at desc
+        projects_with_status.sort_by(|a, b| {
+            b.active_task_count
+                .cmp(&a.active_task_count)
+                .then_with(|| b.project.updated_at.cmp(&a.project.updated_at))
+        });
+        
+        projects_with_status.truncate(5);
+        Ok(projects_with_status)
     }
 
-    pub async fn find_by_id(pool: &sqlx::SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as::<_, Self>("SELECT * FROM projects WHERE id = ?")
-            .bind(id)
-            .fetch_optional(pool)
-            .await
+    pub async fn find_by_id(db: &DatabaseConnection, id: Uuid) -> Result<Option<Self>, DbErr> {
+        ProjectEntity::find_by_id(id).one(db).await
     }
 
-    pub async fn create(
-        pool: &sqlx::SqlitePool,
-        payload: &CreateProject,
-    ) -> Result<Self, sqlx::Error> {
-        let id = Uuid::new_v4();
+    pub async fn create(db: &DatabaseConnection, payload: &CreateProject) -> Result<Self, DbErr> {
         let now = Utc::now();
+        let model = project::ActiveModel {
+            id: Set(Uuid::new_v4()),
+            name: Set(payload.name.clone()),
+            description: Set(payload.description.clone()),
+            repo_path: Set(payload.repo_path.clone()),
+            archived: Set(false),
+            pinned: Set(false),
+            created_at: Set(now),
+            updated_at: Set(now),
+        };
 
-        sqlx::query(
-            "INSERT INTO projects (id, name, description, repo_path, archived, pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(id)
-        .bind(&payload.name)
-        .bind(&payload.description)
-        .bind(&payload.repo_path)
-        .bind(false) // archived
-        .bind(false) // pinned
-        .bind(now)
-        .bind(now)
-        .execute(pool)
-        .await?;
-
-        Ok(Self {
-            id,
-            name: payload.name.clone(),
-            description: payload.description.clone(),
-            repo_path: payload.repo_path.clone(),
-            archived: false,
-            pinned: false,
-            created_at: now,
-            updated_at: now,
-        })
+        model.insert(db).await
     }
 
     pub async fn update(
-        pool: &sqlx::SqlitePool,
+        db: &DatabaseConnection,
         id: Uuid,
         payload: &UpdateProject,
-    ) -> Result<Option<Self>, sqlx::Error> {
-        let existing = Self::find_by_id(pool, id).await?;
+    ) -> Result<Option<Self>, DbErr> {
+        let existing = Self::find_by_id(db, id).await?;
         let Some(existing) = existing else {
             return Ok(None);
         };
 
-        let name = payload.name.as_ref().unwrap_or(&existing.name);
-        let description = payload.description.as_ref().or(existing.description.as_ref());
-        let repo_path = payload.repo_path.as_ref().or(existing.repo_path.as_ref());
-        let archived = payload.archived.unwrap_or(existing.archived);
-        let pinned = payload.pinned.unwrap_or(existing.pinned);
-        let now = Utc::now();
+        let mut model: project::ActiveModel = existing.into();
+        
+        if let Some(name) = &payload.name {
+            model.name = Set(name.clone());
+        }
+        if let Some(description) = &payload.description {
+            model.description = Set(Some(description.clone()));
+        }
+        if let Some(repo_path) = &payload.repo_path {
+            model.repo_path = Set(Some(repo_path.clone()));
+        }
+        if let Some(archived) = payload.archived {
+            model.archived = Set(archived);
+        }
+        if let Some(pinned) = payload.pinned {
+            model.pinned = Set(pinned);
+        }
+        model.updated_at = Set(Utc::now());
 
-        sqlx::query("UPDATE projects SET name = ?, description = ?, repo_path = ?, archived = ?, pinned = ?, updated_at = ? WHERE id = ?")
-            .bind(name)
-            .bind(description)
-            .bind(repo_path)
-            .bind(archived)
-            .bind(pinned)
-            .bind(now)
-            .bind(id)
-            .execute(pool)
-            .await?;
-
-        Ok(Some(Self {
-            id,
-            name: name.clone(),
-            description: description.cloned(),
-            repo_path: repo_path.cloned(),
-            archived,
-            pinned,
-            created_at: existing.created_at,
-            updated_at: now,
-        }))
+        let updated = model.update(db).await?;
+        Ok(Some(updated))
     }
 
-    pub async fn delete(pool: &sqlx::SqlitePool, id: Uuid) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query("DELETE FROM projects WHERE id = ?")
-            .bind(id)
-            .execute(pool)
-            .await?;
-
-        Ok(result.rows_affected() > 0)
+    pub async fn delete(db: &DatabaseConnection, id: Uuid) -> Result<bool, DbErr> {
+        let result = ProjectEntity::delete_by_id(id).exec(db).await?;
+        Ok(result.rows_affected > 0)
     }
 }

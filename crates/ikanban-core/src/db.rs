@@ -1,64 +1,22 @@
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-use sqlx::SqlitePool;
-use std::str::FromStr;
+use sea_orm::{ConnectOptions, Database, DatabaseConnection, DbErr};
+use sea_orm_migration::MigratorTrait;
+use std::time::Duration;
 
-const MIGRATIONS: &str = r#"
--- Projects table
-CREATE TABLE IF NOT EXISTS projects (
-    id TEXT PRIMARY KEY NOT NULL,
-    name TEXT NOT NULL,
-    description TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
+use crate::migrator::Migrator;
 
--- Tasks table
-CREATE TABLE IF NOT EXISTS tasks (
-    id TEXT PRIMARY KEY NOT NULL,
-    project_id TEXT NOT NULL,
-    title TEXT NOT NULL,
-    description TEXT,
-    status TEXT NOT NULL DEFAULT 'todo',
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-);
+pub async fn create_connection(database_url: &str) -> Result<DatabaseConnection, DbErr> {
+    let mut opt = ConnectOptions::new(database_url);
+    opt.max_connections(5)
+        .min_connections(1)
+        .connect_timeout(Duration::from_secs(10))
+        .acquire_timeout(Duration::from_secs(10))
+        .sqlx_logging(false);
 
--- Indexes
-CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
-    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+    let db = Database::connect(opt).await?;
 
-    -- Core-2: Extended Project Model
-    ALTER TABLE projects ADD COLUMN repo_path TEXT;
-    ALTER TABLE projects ADD COLUMN archived BOOLEAN NOT NULL DEFAULT 0;
-    ALTER TABLE projects ADD COLUMN pinned BOOLEAN NOT NULL DEFAULT 0;
-"#;
-
-pub async fn create_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
-    let options = SqliteConnectOptions::from_str(database_url)?
-        .create_if_missing(true)
-        .foreign_keys(true);
-
-    let pool = SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect_with(options)
-        .await?;
-
-    // Run migrations
-    run_migrations(&pool).await?;
-
-    Ok(pool)
-}
-
-async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    // Split and execute each statement
-    for statement in MIGRATIONS.split(';') {
-        let statement = statement.trim();
-        if !statement.is_empty() {
-            sqlx::query(statement).execute(pool).await?;
-        }
-    }
+    // Run migrations automatically
+    Migrator::up(&db, None).await?;
 
     tracing::info!("Database migrations completed");
-    Ok(())
+    Ok(db)
 }
