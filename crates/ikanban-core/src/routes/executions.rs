@@ -1,13 +1,89 @@
 use axum::{
-    extract::{Path, State, ws::{Message, WebSocket, WebSocketUpgrade}},
-    response::Response,
-    routing::get,
+    extract::{Path, State, WebSocketUpgrade, ws::{Message, WebSocket}},
+    response::{Json, Response},
+    routing::{get, post},
     Router,
 };
 use uuid::Uuid;
 
-use crate::AppState;
-use crate::entities::response::WsEvent;
+use crate::{
+    error::AppError,
+    entities::{
+        response::{ApiResponse, WsEvent},
+        execution_process::{CreateExecutionProcess, Model as ExecutionProcess},
+        session::{Model as Session},
+    },
+    AppState,
+};
+
+/// GET /api/sessions/{session_id}/executions - List executions for a session
+pub async fn list_executions(
+    State(state): State<AppState>,
+    Path(session_id): Path<Uuid>,
+) -> Result<Json<ApiResponse<Vec<ExecutionProcess>>>, AppError> {
+    // Verify session exists
+    let _ = Session::find_by_id(&state.db, session_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?;
+
+    let executions = ExecutionProcess::find_by_session_id(&state.db, session_id).await?;
+    Ok(Json(ApiResponse::success(executions)))
+}
+
+/// POST /api/sessions/{session_id}/executions - Create a new execution
+pub async fn create_execution(
+    State(state): State<AppState>,
+    Path(session_id): Path<Uuid>,
+    Json(mut payload): Json<CreateExecutionProcess>,
+) -> Result<Json<ApiResponse<ExecutionProcess>>, AppError> {
+    // Ensure payload session_id matches path session_id
+    payload.session_id = session_id;
+
+    // Verify session exists
+    let _ = Session::find_by_id(&state.db, session_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?;
+
+    let execution = ExecutionProcess::create(&state.db, &payload).await?;
+
+    // Broadcast event
+    state.broadcast(WsEvent::ExecutionCreated(execution.clone()));
+
+    tracing::info!(
+        "Created execution: {} for session {}",
+        execution.id,
+        execution.session_id
+    );
+    Ok(Json(ApiResponse::success(execution)))
+}
+
+/// GET /api/executions/{id} - Get execution by ID
+pub async fn get_execution(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ApiResponse<ExecutionProcess>>, AppError> {
+    let execution = ExecutionProcess::find_by_id(&state.db, id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Execution {} not found", id)))?;
+
+    Ok(Json(ApiResponse::success(execution)))
+}
+
+/// POST /api/executions/{id}/stop - Stop an execution
+pub async fn stop_execution(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ApiResponse<ExecutionProcess>>, AppError> {
+    let execution = ExecutionProcess::stop(&state.db, id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Execution {} not found", id)))?;
+
+    // Broadcast event
+    state.broadcast(WsEvent::ExecutionUpdated(execution.clone()));
+
+    tracing::info!("Stopped execution: {}", id);
+    Ok(Json(ApiResponse::success(execution)))
+}
 
 pub async fn logs_stream(
     State(state): State<AppState>,
@@ -45,5 +121,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, execution_id: Uui
 }
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/executions/:id/logs/stream", get(logs_stream))
+    Router::new()
+        .route("/sessions/:session_id/executions", get(list_executions).post(create_execution))
+        .route("/executions/:id", get(get_execution))
+        .route("/executions/:id/stop", post(stop_execution))
+        .route("/executions/:id/logs/stream", get(logs_stream))
 }

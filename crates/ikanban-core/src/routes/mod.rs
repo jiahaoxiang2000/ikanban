@@ -1,6 +1,7 @@
 mod health;
 mod projects;
 mod tasks;
+mod sessions;
 mod events;
 mod executions;
 
@@ -19,6 +20,7 @@ fn api_router() -> Router<AppState> {
     Router::new()
         .merge(projects::router())
         .merge(tasks::router())
+        .merge(sessions::router())
         .merge(events::router())
         .merge(executions::router())
 }
