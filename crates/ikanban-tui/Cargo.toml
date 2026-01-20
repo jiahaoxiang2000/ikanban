@@ -39,6 +39,51 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+tracing-error = "0.2.0"
 
 # URL parsing
 url = "2.5"
+
+# Error handling and panic
+color-eyre = "0.6.3"
+better-panic = "0.3.0"
+human-panic = "2.0.2"
+libc = "0.2.161"
+signal-hook = "0.3.17"
+strip-ansi-escapes = "0.2.0"
+
+# Configuration
+config = "0.14.0"
+json5 = "0.4.1"
+directories = "5.0.1"
+
+# CLI
+clap = { version = "4.5.20", features = [
+    "derive",
+    "cargo",
+    "wrap_help",
+    "unicode",
+    "string",
+    "unstable-styles",
+] }
+
+# Testing
+pretty_assertions = "1.4.1"
+strum = { version = "0.26.3", features = ["derive"] }
+
+# Misc
+tokio-util = "0.7.12"
+futures = "0.3.31"
+
+[build-dependencies]
+vergen-gix = { version = "1.0.2", features = ["build", "cargo"], optional = true }
+
+[features]
+default = []
+build = ["vergen-gix"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
