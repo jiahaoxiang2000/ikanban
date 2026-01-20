@@ -38,14 +38,14 @@ impl ActiveModelBehavior for ActiveModel {}
 
 // --- DTOs and Business Logic ---
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CreateProject {
     pub name: String,
     pub description: Option<String>,
     pub repo_path: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateProject {
     pub name: Option<String>,
     pub description: Option<String>,

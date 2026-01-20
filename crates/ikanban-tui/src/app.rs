@@ -1,7 +1,9 @@
 use uuid::Uuid;
 
 use crate::api::ApiClient;
-use crate::models::{CreateProject, CreateTask, Project, Task, TaskStatus, UpdateTask};
+use crate::models::{
+    CreateProject, CreateTask, Project, Task, TaskStatus, TaskStatusExt, UpdateTask,
+};
 
 /// Current view/screen in the TUI
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

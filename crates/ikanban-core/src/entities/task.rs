@@ -58,7 +58,7 @@ impl ActiveModelBehavior for ActiveModel {}
 
 // --- DTOs and Business Logic ---
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CreateTask {
     pub project_id: Uuid,
     pub title: String,
@@ -66,7 +66,7 @@ pub struct CreateTask {
     pub status: Option<TaskStatus>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateTask {
     pub title: Option<String>,
     pub description: Option<String>,

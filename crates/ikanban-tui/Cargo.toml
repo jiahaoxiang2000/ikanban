@@ -11,6 +11,9 @@ name = "ikanban"
 path = "src/main.rs"
 
 [dependencies]
+# Core library
+ikanban-core = { path = "../ikanban-core" }
+
 # Async runtime
 tokio = { workspace = true }
 
