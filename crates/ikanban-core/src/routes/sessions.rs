@@ -84,6 +84,6 @@ pub async fn get_session(
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/tasks/:task_id/sessions", get(list_sessions).post(create_session))
-        .route("/tasks/:task_id/sessions/:id", get(get_session))
+        .route("/tasks/{task_id}/sessions", get(list_sessions).post(create_session))
+        .route("/tasks/{task_id}/sessions/{id}", get(get_session))
 }
