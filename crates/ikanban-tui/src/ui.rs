@@ -108,13 +108,22 @@ fn draw_project_detail_view(frame: &mut Frame, app: &App, area: Rect) {
             .constraints([
                 Constraint::Length(3), // Project name
                 Constraint::Min(0),    // Description
+                Constraint::Length(3), // Repo Path
                 Constraint::Length(3), // Metadata
             ])
             .split(area);
 
         // Project name
+        let name_title = if project.archived {
+            " Name (Archived) "
+        } else if project.pinned {
+            " Name (Pinned) "
+        } else {
+            " Name "
+        };
+
         let name_block = Block::default()
-            .title(" Name ")
+            .title(name_title)
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Cyan));
         let name = Paragraph::new(project.name.as_str())
@@ -138,6 +147,17 @@ fn draw_project_detail_view(frame: &mut Frame, app: &App, area: Rect) {
             .block(desc_block);
         frame.render_widget(description, chunks[1]);
 
+        // Repo Path
+        let repo_text = project.repo_path.as_deref().unwrap_or("No repository path");
+        let repo_block = Block::default()
+            .title(" Repository Path ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan));
+        let repo = Paragraph::new(repo_text)
+            .style(Style::default().fg(Color::White))
+            .block(repo_block);
+        frame.render_widget(repo, chunks[2]);
+
         // Metadata
         let metadata = format!(
             "ID: {} | Created: {} | Updated: {}",
@@ -152,7 +172,7 @@ fn draw_project_detail_view(frame: &mut Frame, app: &App, area: Rect) {
         let meta = Paragraph::new(metadata)
             .style(Style::default().fg(Color::Gray))
             .block(meta_block);
-        frame.render_widget(meta, chunks[2]);
+        frame.render_widget(meta, chunks[3]);
     } else {
         let error = Paragraph::new("No project selected")
             .style(Style::default().fg(Color::Red))

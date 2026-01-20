@@ -170,6 +170,7 @@ impl App {
         let payload = CreateProject {
             name,
             description: None,
+            repo_path: None,
         };
         self.api.create_project(&payload).await?;
         self.load_projects().await?;
@@ -185,12 +186,15 @@ impl App {
         Ok(())
     }
 
-    pub async fn update_project_detail(&mut self, name: Option<String>, description: Option<String>) -> anyhow::Result<()> {
+    pub async fn update_project_detail(&mut self, name: Option<String>, description: Option<String>, repo_path: Option<String>) -> anyhow::Result<()> {
         if let Some(project) = &self.project_detail {
             use crate::models::UpdateProject;
             let payload = UpdateProject {
                 name,
                 description,
+                repo_path,
+                archived: None,
+                pinned: None,
             };
             let updated = self.api.update_project(project.id, &payload).await?;
             self.project_detail = Some(updated);
@@ -287,12 +291,12 @@ impl App {
                 if self.view == View::Projects {
                     self.create_project(input).await?;
                 } else if self.view == View::ProjectDetail {
-                    self.update_project_detail(Some(input), None).await?;
+                    self.update_project_detail(Some(input), None, None).await?;
                     self.set_status("Project name updated");
                 }
             }
             InputField::ProjectDescription => {
-                self.update_project_detail(None, Some(input)).await?;
+                self.update_project_detail(None, Some(input), None).await?;
                 self.set_status("Project description updated");
             }
             InputField::TaskTitle => {

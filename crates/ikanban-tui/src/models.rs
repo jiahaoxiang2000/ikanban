@@ -16,6 +16,9 @@ pub struct Project {
     pub id: Uuid,
     pub name: String,
     pub description: Option<String>,
+    pub repo_path: Option<String>,
+    pub archived: bool,
+    pub pinned: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -25,6 +28,7 @@ pub struct Project {
 pub struct CreateProject {
     pub name: String,
     pub description: Option<String>,
+    pub repo_path: Option<String>,
 }
 
 /// Update project request
@@ -32,6 +36,9 @@ pub struct CreateProject {
 pub struct UpdateProject {
     pub name: Option<String>,
     pub description: Option<String>,
+    pub repo_path: Option<String>,
+    pub archived: Option<bool>,
+    pub pinned: Option<bool>,
 }
 
 /// Task status
