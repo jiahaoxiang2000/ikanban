@@ -112,6 +112,12 @@ async fn handle_normal_mode(app: &mut App, key_code: KeyCode, key_modifiers: Key
         return Ok(true);
     }
 
+    // Check for ? key (toggle help modal)
+    if key_code == KeyCode::Char('?') {
+        app.toggle_help_modal();
+        return Ok(true);
+    }
+
     match app.view {
         View::Projects => match key_code {
             KeyCode::Char('q') => return Ok(false),
