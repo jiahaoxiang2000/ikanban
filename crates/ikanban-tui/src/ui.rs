@@ -332,7 +332,7 @@ fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
             "q: Quit | n: New Project | d: Delete | Enter: Open | j/k: Navigate"
         }
         View::ProjectDetail => {
-            "Esc: Back | Enter: Open Tasks | e: Edit Name | d: Edit Description | j/k: Navigate"
+            "Esc: Back | Enter: Open Tasks | e: Edit Name | d: Edit Description | r: Edit Repo Path | j/k: Navigate"
         }
         View::Tasks => {
             "Esc: Back | n: New Task | d: Delete | Space: Move Status | Enter: Details | h/l: Columns | j/k: Navigate"
@@ -369,6 +369,7 @@ fn draw_input_popup(frame: &mut Frame, app: &App) {
             }
         }
         InputField::ProjectDescription => "Edit Project Description",
+        InputField::ProjectRepoPath => "Edit Project Repository Path",
         InputField::TaskTitle => {
             if app.view == View::Tasks {
                 "New Task Title"

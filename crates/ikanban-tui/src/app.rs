@@ -62,6 +62,7 @@ pub enum InputField {
     None,
     ProjectName,
     ProjectDescription,
+    ProjectRepoPath,
     TaskTitle,
     TaskDescription,
 }
@@ -522,6 +523,10 @@ impl App {
             InputField::ProjectDescription => {
                 self.update_project_detail(None, Some(input), None).await?;
                 self.set_status("Project description updated");
+            }
+            InputField::ProjectRepoPath => {
+                self.update_project_detail(None, None, Some(input)).await?;
+                self.set_status("Project repository path updated");
             }
             InputField::TaskTitle => {
                 if self.view == View::Tasks {

@@ -148,6 +148,12 @@ async fn handle_normal_mode(app: &mut App, key: KeyCode) -> anyhow::Result<bool>
                     app.start_input(InputField::ProjectDescription);
                 }
             }
+            KeyCode::Char('r') => {
+                if let Some(project) = &app.project_detail {
+                    app.input = project.repo_path.as_deref().unwrap_or("").to_string();
+                    app.start_input(InputField::ProjectRepoPath);
+                }
+            }
             _ => {}
         },
         View::Tasks => match key {
