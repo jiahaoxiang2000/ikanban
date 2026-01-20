@@ -23,10 +23,10 @@
 
 ### Extended Project Model
 
-- [ ] Add `repo_path` field (migration, struct, CRUD)
-- [ ] Add `archived`/`pinned` flags (migration, struct, CRUD)
-- [ ] Add `find_most_active()` query
-- [ ] Implement `ProjectWithStatus` view struct + API endpoint
+- [x] Add `repo_path` field (migration, struct, CRUD)
+- [x] Add `archived`/`pinned` flags (migration, struct, CRUD)
+- [x] Add `find_most_active()` query
+- [x] Implement `ProjectWithStatus` view struct + API endpoint
 
 ### Feature: Real-time & WebSocket Infrastructure
 
