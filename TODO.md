@@ -1,525 +1,145 @@
-# iKanban - Multi-Agent Manager
+# iKanban TODO
 
-A Rust-based multi-agent task management system with a core server and multiple client support via HTTP/WebSocket.
+## ikanban-core
 
-## Architecture
-
-```
-+------------------+     +------------------+     +------------------+
-|   TUI Client     |     |   Web Client     |     |  Other Clients   |
-+--------+---------+     +--------+---------+     +--------+---------+
-         |                        |                        |
-         |    HTTP/WebSocket      |    HTTP/WebSocket      |
-         +------------------------+------------------------+
-                                  |
-                    +-------------+-------------+
-                    |      iKanban Core         |
-                    |   (HTTP + WebSocket API)  |
-                    +-------------+-------------+
-                                  |
-                    +-------------+-------------+
-                    |     SQLite Database       |
-                    +---------------------------+
-```
-
-## Data Model Hierarchy
-
-```
-Project (1:1 with Repo)
-    │
-    ├── repo_path
-    │
-    └── Tasks (1:N)
-            │
-            ├── branch, working_dir  // Bound to each task
-            │
-            └── Sessions (1:N per Task, each run is a session)
-                    │
-                    └── ExecutionProcess (1:N per Session)
-```
-
-- **Project**: One project = one repository. Contains repo path.
-- **Task**: A unit of work within a project. Contains branch and working directory for context. Can have multiple sessions (attempts/runs).
-- **Session**: One execution attempt of a task. Each time you run a task, a new session is created.
-- **ExecutionProcess**: The actual process running within a session (agent, script, etc.).
-
-## MVP Core API Specification
-
-### Health Check
-
-- `GET /health` - Server health status
-
-### Projects API
-
-| Method | Endpoint                  | Description                          |
-| ------ | ------------------------- | ------------------------------------ |
-| GET    | `/api/projects`           | List all projects                    |
-| POST   | `/api/projects`           | Create a new project                 |
-| GET    | `/api/projects/{id}`      | Get project by ID                    |
-| PUT    | `/api/projects/{id}`      | Update project                       |
-| DELETE | `/api/projects/{id}`      | Delete project                       |
-| GET    | `/api/projects/stream/ws` | WebSocket stream for project updates |
-
-### Tasks API
-
-| Method | Endpoint                               | Description                       |
-| ------ | -------------------------------------- | --------------------------------- |
-| GET    | `/api/tasks?project_id={id}`           | List tasks for a project          |
-| POST   | `/api/tasks`                           | Create a new task                 |
-| GET    | `/api/tasks/{id}`                      | Get task by ID                    |
-| PUT    | `/api/tasks/{id}`                      | Update task                       |
-| DELETE | `/api/tasks/{id}`                      | Delete task                       |
-| GET    | `/api/tasks/stream/ws?project_id={id}` | WebSocket stream for task updates |
-
-### Sessions API (Planned)
-
-| Method | Endpoint                                    | Description                |
-| ------ | ------------------------------------------- | -------------------------- |
-| GET    | `/api/tasks/{tid}/sessions`                 | List sessions for a task   |
-| POST   | `/api/tasks/{tid}/sessions`                 | Create a new session (run) |
-| GET    | `/api/tasks/{tid}/sessions/{sid}`           | Get session by ID          |
-
-### Execution API (Planned)
-
-| Method | Endpoint                                          | Description                    |
-| ------ | ------------------------------------------------- | ------------------------------ |
-| GET    | `.../sessions/{sid}/executions`                   | List executions for session    |
-| POST   | `.../sessions/{sid}/executions`                   | Start execution process        |
-| GET    | `.../sessions/{sid}/executions/{eid}`             | Get execution by ID            |
-| POST   | `.../sessions/{sid}/executions/{eid}/stop`        | Stop/kill execution            |
-| GET    | `.../sessions/{sid}/executions/{eid}/logs`        | Get execution logs             |
-| GET    | `.../sessions/{sid}/executions/{eid}/logs/stream` | Stream execution logs (WS/SSE) |
-| POST   | `.../sessions/{sid}/restore/{eid}`                | Restore to execution state     |
-
-### Merge API (Planned)
-
-| Method | Endpoint                             | Description             |
-| ------ | ------------------------------------ | ----------------------- |
-| GET    | `/api/projects/{pid}/merges`         | List merges for project |
-| POST   | `/api/projects/{pid}/merges/direct`  | Create direct merge     |
-| POST   | `/api/projects/{pid}/merges/pr`      | Create PR               |
-| GET    | `/api/projects/{pid}/merges/{mid}`   | Get merge by ID         |
-
-### Events API (SSE)
-
-| Method | Endpoint      | Description                               |
-| ------ | ------------- | ----------------------------------------- |
-| GET    | `/api/events` | Server-Sent Events stream for all updates |
-
----
-
-## Implementation TODO
-
-### Phase 1: Project Setup (Completed)
-
-- [x] Create TODO.md with API specifications
-- [x] Initialize Rust workspace with Cargo.toml
-- [x] Create crate structure:
-  - `ikanban-core` - Core server with HTTP/WebSocket API
-  - `ikanban-tui` - Terminal UI client
-
-### Phase 2: Core Server MVP (Completed)
+### Core-1: MVP Server (Completed)
 
 - [x] Setup dependencies (axum, tokio, sqlx, serde, uuid)
-- [x] Database layer
-  - [x] SQLite connection pool
-  - [x] Project model & migrations
-  - [x] Task model & migrations
-- [x] HTTP API routes
-  - [x] Health check endpoint
-  - [x] Projects CRUD endpoints
-  - [x] Tasks CRUD endpoints
-- [x] WebSocket support
-  - [x] Project stream endpoint
-  - [x] Task stream endpoint
-- [x] Event broadcasting system
-  - [x] In-memory event bus
-  - [x] SSE endpoint for events
+- [x] Database layer (SQLite, Project/Task models & migrations)
+- [x] HTTP API routes (health, projects CRUD, tasks CRUD)
+- [x] WebSocket support (project/task streams)
+- [x] Event broadcasting (in-memory bus, SSE endpoint)
 
-### Phase 3: TUI Client MVP (Completed)
+### Core-2: Extended Project Model
+
+- [ ] **Core-2.1**: Add `repo_path` field (migration, struct, CRUD)
+- [ ] **Core-2.2**: Add `archived`/`pinned` flags (migration, struct, CRUD)
+- [ ] **Core-2.3**: Add `find_most_active()` query
+- [ ] **Core-2.4**: Implement `ProjectWithStatus` view struct + API endpoint
+
+### Core-3: Extended Task Model
+
+- [ ] **Core-3.1**: Add `branch` and `working_dir` fields
+- [ ] **Core-3.2**: Add `InReview` and `Cancelled` status variants
+- [ ] **Core-3.3**: Add `parent_task_id` for subtasks
+- [ ] **Core-3.4**: Implement `TaskWithSessionStatus` view struct + API endpoint
+
+### Core-4: Session Management
+
+- [ ] **Core-4.1**: Create Session model (`models/session.rs`)
+- [ ] **Core-4.2**: Create sessions table migration
+- [ ] **Core-4.3**: Implement Session CRUD methods
+- [ ] **Core-4.4**: Create Session API routes (`routes/sessions.rs`)
+
+### Core-5: Execution Process System
+
+- [ ] **Core-5.1**: Create ExecutionProcess model (`models/execution.rs`)
+- [ ] **Core-5.2**: Create execution_processes table migration
+- [ ] **Core-5.3**: Implement ExecutionProcess CRUD methods
+- [ ] **Core-5.4**: Create ExecutionProcessLogs model
+- [ ] **Core-5.5**: Create Execution API routes (`routes/executions.rs`)
+
+### Core-6: CodingAgentTurn Entity
+
+- [ ] **Core-6.1**: Create CodingAgentTurn model
+- [ ] **Core-6.2**: Create coding_agent_turns table migration
+- [ ] **Core-6.3**: Implement CodingAgentTurn methods
+
+### Core-7: Merge Tracking
+
+- [ ] **Core-7.1**: Create Merge models (DirectMerge, PrMerge)
+- [ ] **Core-7.2**: Create merges table migration
+- [ ] **Core-7.3**: Implement Merge CRUD methods
+- [ ] **Core-7.4**: Create Merge API routes (`routes/merges.rs`)
+
+### Core-8: Real-time & WebSocket Enhancements
+
+- [ ] **Core-8.1**: Enhance event types (Session, Execution, Merge events)
+- [ ] **Core-8.2**: Implement log streaming via WebSocket
+- [ ] **Core-8.3**: PR monitoring background service
+
+### Core-9: Additional Features
+
+- [ ] **Core-9.1**: Tag/Template system
+- [ ] **Core-9.2**: Image attachments
+- [ ] **Core-9.3**: Scratch/Draft entity
+
+### Core-10: Testing & Polish
+
+- [ ] **Core-10.1**: Integration tests
+- [ ] **Core-10.2**: Error handling improvements
+- [ ] **Core-10.3**: Graceful shutdown
+
+---
+
+## ikanban-tui
+
+### TUI-1: MVP Client (Completed)
 
 - [x] Setup dependencies (ratatui, crossterm, reqwest, tokio-tungstenite)
-- [x] HTTP client for REST API
-- [ ] WebSocket client for real-time updates (prepared, not yet integrated)
-- [x] TUI components
-  - [x] Project list view
-  - [x] Task board view (kanban style)
-  - [ ] Task detail/edit view
-- [x] Keyboard navigation
+- [x] HTTP client for REST API (`api.rs`)
+- [x] TUI components (project list, task board)
+- [x] Keyboard navigation, input popup
 
-### Phase 4: Enhanced Data Models
+### TUI-2: WebSocket Integration
 
-- [ ] Extended Project model (1:1 with repo)
-  - [ ] Add `repo_path` field (repository path)
-  - [ ] Add `archived/pinned` flags
-  - [ ] Add `find_most_active()` query for project sorting
-  - [ ] `ProjectWithStatus` view with is_running/is_errored
-- [ ] Extended Task model
-  - [ ] Add `branch` field (context branch for this task)
-  - [ ] Add `working_dir` field (working directory within repo for this task)
-  - [ ] Add `InReview` and `Cancelled` status variants
-  - [ ] Add `parent_task_id` field for task hierarchy
-  - [ ] Implement `TaskWithSessionStatus` view struct
+- [ ] **TUI-2.1**: Create WebSocket client module (`ws.rs`)
+- [ ] **TUI-2.2**: Integrate WebSocket with App state
+- [ ] **TUI-2.3**: Handle real-time updates
 
-### Phase 5: Session Management
+### TUI-3: Task Detail/Edit View
 
-- [ ] Session entity
-  - [ ] Create `sessions` table migration
-  - [ ] Fields: task_id, executor (profile)
-  - [ ] Find sessions by task, ordered by last used
-  - [ ] Each session = one run/attempt of a task
+- [ ] **TUI-3.1**: Create TaskDetailView component
+- [ ] **TUI-3.2**: Implement task editing
+- [ ] **TUI-3.3**: Add task status quick-change
 
-### Phase 6: Execution Process System
+### TUI-4: Project Detail View
 
-- [ ] ExecutionProcess entity
-  - [ ] Create `execution_processes` table migration
-  - [ ] Run reasons: SetupScript, CleanupScript, CodingAgent, DevServer
-  - [ ] Status: Running, Completed, Failed, Killed
-  - [ ] executor_action JSON storage
-  - [ ] dropped flag for soft-delete/restore
-  - [ ] started_at, completed_at timestamps
-- [ ] ExecutionProcessLogs
-  - [ ] Streaming log storage
-  - [ ] Log retrieval for UI display
-- [ ] ExecutionProcessRepoState
-  - [ ] Track before/after head commits
-- [ ] CodingAgentTurn entity
-  - [ ] Track agent session interactions
-  - [ ] prompt and summary storage
-  - [ ] seen flag for notification badges
-  - [ ] agent_session_id for Claude/Amp integration
+- [ ] **TUI-4.1**: Create ProjectDetailView component
+- [ ] **TUI-4.2**: Implement project editing
 
-### Phase 7: Additional Features
+### TUI-5: Session Management UI
 
-- [ ] Tag/Template system
-  - [ ] Create `tags` table migration
-  - [ ] CRUD for task templates
-  - [ ] Tag content storage
-- [ ] Image attachments
-  - [ ] Create `images` and `task_images` tables
-  - [ ] Image upload/storage with hash deduplication
-  - [ ] Task-image associations
-  - [ ] Orphaned image cleanup
-- [ ] Merge tracking
-  - [ ] Create `merges` table migration
-  - [ ] Direct merge support
-  - [ ] PR merge with status monitoring
-  - [ ] PR status polling service
-- [ ] Scratch/Draft entity
-  - [ ] Temporary storage for work in progress
+- [ ] **TUI-5.1**: Create SessionListView component
+- [ ] **TUI-5.2**: Implement session navigation
+- [ ] **TUI-5.3**: Create new session
 
-### Phase 8: API Extensions
+### TUI-6: Execution Log Viewer
 
-- [ ] Extended Project API endpoints
-  - [ ] Project context loading (with tasks, sessions)
-  - [ ] Archive/unarchive, pin/unpin
-- [ ] Session API endpoints
-  - [ ] Create session for task
-  - [ ] List sessions by task
-- [ ] Execution API endpoints
-  - [ ] Start execution process
-  - [ ] Stream execution logs
-  - [ ] Stop/kill execution
-  - [ ] Restore to previous state (drop processes)
-- [ ] Merge API endpoints
-  - [ ] Create PR / direct merge
-  - [ ] Get merge status
-  - [ ] List merges by project
+- [ ] **TUI-6.1**: Create ExecutionLogView component
+- [ ] **TUI-6.2**: Implement log streaming
+- [ ] **TUI-6.3**: Log navigation
 
-### Phase 9: Real-time Features
+### TUI-7: Status Indicators & Notifications
 
-- [ ] Enhanced WebSocket events
-  - [ ] Project events (created, updated, archived)
-  - [ ] Session events
-  - [ ] Execution process events (started, completed, failed)
-  - [ ] Log streaming via WebSocket
-- [ ] PR monitoring service
-  - [ ] Background polling for PR status
-  - [ ] Auto-archive on merge
-  - [ ] Notification on status change
+- [ ] **TUI-7.1**: Add status indicators to project list
+- [ ] **TUI-7.2**: Add status indicators to task board
+- [ ] **TUI-7.3**: Notification system
 
-### Phase 10: TUI Enhancements
+### TUI-8: Enhanced Navigation & Shortcuts
 
-- [ ] Task detail/edit view
-- [ ] Project detail view (with branch, status)
-- [ ] Session list view (task run history)
-- [ ] Execution log viewer
-- [ ] Real-time status indicators
-- [ ] Keyboard shortcuts for common actions
+- [ ] **TUI-8.1**: Global keyboard shortcuts (`?`, `r`, `/`, `q`)
+- [ ] **TUI-8.2**: Project view shortcuts (`n`, `d`, `e`, `a`, `p`)
+- [ ] **TUI-8.3**: Task view shortcuts (`n`, `d`, `e`, `Space`, `s`)
 
-### Phase 11: Polish & Testing
+### TUI-9: UI Polish
 
-- [ ] Error handling improvements
-- [x] Logging with tracing
-- [ ] Integration tests
-- [ ] API documentation
-- [ ] Graceful shutdown handling
-- [ ] File search cache (for large repos)
-- [ ] Analytics/telemetry (optional)
+- [ ] **TUI-9.1**: Confirmation dialogs
+- [ ] **TUI-9.2**: Help overlay
+- [ ] **TUI-9.3**: Theme support
+
+### TUI-10: Error Handling & UX
+
+- [ ] **TUI-10.1**: Error display
+- [ ] **TUI-10.2**: Loading states
+- [ ] **TUI-10.3**: Offline mode
 
 ---
 
-## Data Models
+## Cross-Cutting
 
-### Project (1:1 with Repo)
-
-```rust
-pub struct Project {
-    pub id: Uuid,
-    pub name: String,
-    // Repo info (one project = one repo)
-    pub repo_path: String,              // Repository path
-    // Status
-    pub archived: bool,
-    pub pinned: bool,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-pub struct ProjectWithStatus {
-    pub project: Project,
-    pub is_running: bool,      // Has running session
-    pub is_errored: bool,      // Last session failed
-    pub task_count: i32,
-    pub active_task_count: i32,
-}
-
-pub struct CreateProject {
-    pub name: String,
-    pub repo_path: String,
-}
-
-pub struct UpdateProject {
-    pub name: Option<String>,
-    pub archived: Option<bool>,
-    pub pinned: Option<bool>,
-}
-```
-
-### Task
-
-```rust
-pub enum TaskStatus {
-    Todo,
-    InProgress,
-    InReview,
-    Done,
-    Cancelled,
-}
-
-pub struct Task {
-    pub id: Uuid,
-    pub project_id: Uuid,
-    pub title: String,
-    pub description: Option<String>,
-    pub status: TaskStatus,
-    pub branch: Option<String>,         // Context branch for this task
-    pub working_dir: Option<String>,    // Working directory within repo for this task
-    pub parent_task_id: Option<Uuid>,   // For subtasks
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-pub struct TaskWithSessionStatus {
-    pub task: Task,
-    pub session_count: i32,         // Total runs
-    pub has_running_session: bool,  // Currently running
-    pub last_session_failed: bool,  // Last run failed
-}
-
-pub struct CreateTask {
-    pub project_id: Uuid,
-    pub title: String,
-    pub description: Option<String>,
-    pub status: Option<TaskStatus>,
-    pub branch: Option<String>,
-    pub working_dir: Option<String>,
-    pub parent_task_id: Option<Uuid>,
-}
-
-pub struct UpdateTask {
-    pub title: Option<String>,
-    pub description: Option<String>,
-    pub status: Option<TaskStatus>,
-    pub branch: Option<String>,
-    pub working_dir: Option<String>,
-    pub parent_task_id: Option<Uuid>,
-}
-```
-
-### Session (one run/attempt of a Task)
-
-```rust
-pub struct Session {
-    pub id: Uuid,
-    pub task_id: Uuid,              // Belongs to task
-    pub executor: Option<String>,   // Executor profile name
-    pub status: SessionStatus,
-    pub started_at: DateTime<Utc>,
-    pub completed_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-pub enum SessionStatus {
-    Running,
-    Completed,
-    Failed,
-    Cancelled,
-}
-
-pub struct CreateSession {
-    pub executor: Option<String>,
-}
-```
-
-### ExecutionProcess
-
-```rust
-pub enum ExecutionProcessStatus {
-    Running,
-    Completed,
-    Failed,
-    Killed,
-}
-
-pub enum ExecutionProcessRunReason {
-    SetupScript,
-    CleanupScript,
-    CodingAgent,
-    DevServer,
-}
-
-pub struct ExecutionProcess {
-    pub id: Uuid,
-    pub session_id: Uuid,
-    pub run_reason: ExecutionProcessRunReason,
-    pub executor_action: Json<ExecutorAction>,
-    pub status: ExecutionProcessStatus,
-    pub exit_code: Option<i64>,
-    pub dropped: bool,  // For soft-delete/restore
-    pub started_at: DateTime<Utc>,
-    pub completed_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-```
-
-### CodingAgentTurn
-
-```rust
-pub struct CodingAgentTurn {
-    pub id: Uuid,
-    pub execution_process_id: Uuid,
-    pub agent_session_id: Option<String>,
-    pub prompt: Option<String>,
-    pub summary: Option<String>,
-    pub seen: bool,  // For notification badges
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-```
-
-### Merge
-
-```rust
-pub enum MergeStatus {
-    Open,
-    Merged,
-    Closed,
-    Unknown,
-}
-
-pub enum Merge {
-    Direct(DirectMerge),
-    Pr(PrMerge),
-}
-
-pub struct DirectMerge {
-    pub id: Uuid,
-    pub project_id: Uuid,
-    pub merge_commit: String,
-    pub target_branch: String,
-    pub created_at: DateTime<Utc>,
-}
-
-pub struct PrMerge {
-    pub id: Uuid,
-    pub project_id: Uuid,
-    pub target_branch: String,
-    pub pr_number: i64,
-    pub pr_url: String,
-    pub status: MergeStatus,
-    pub merged_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-}
-```
-
----
-
-## API Response Format
-
-All API responses follow this structure:
-
-```rust
-pub struct ApiResponse<T> {
-    pub success: bool,
-    pub data: Option<T>,
-    pub error: Option<String>,
-}
-```
-
----
-
-## WebSocket Message Format
-
-```rust
-pub enum WsMessage {
-    // Project events
-    ProjectCreated(Project),
-    ProjectUpdated(Project),
-    ProjectDeleted { id: Uuid },
-
-    // Task events
-    TaskCreated(Task),
-    TaskUpdated(Task),
-    TaskDeleted { id: Uuid },
-
-    // Session events (task runs)
-    SessionCreated(Session),
-    SessionUpdated(Session),
-    SessionCompleted { id: Uuid, status: SessionStatus },
-
-    // Execution events
-    ExecutionStarted(ExecutionProcess),
-    ExecutionCompleted(ExecutionProcess),
-    ExecutionFailed(ExecutionProcess),
-    ExecutionLog { process_id: Uuid, data: String },
-
-    // Merge events
-    MergeCreated(Merge),
-    MergeStatusUpdated { id: Uuid, status: MergeStatus },
-}
-```
-
----
-
-## Tech Stack
-
-### Core Server
-
-- **axum** - Web framework with WebSocket support
-- **tokio** - Async runtime
-- **sqlx** - Async SQL with SQLite
-- **serde** - Serialization
-- **uuid** - UUID generation
-- **chrono** - Date/time handling
-- **tracing** - Logging
-
-### TUI Client
-
-- **ratatui** - Terminal UI framework
-- **crossterm** - Terminal manipulation
-- **reqwest** - HTTP client
-- **tokio-tungstenite** - WebSocket client
-- **tokio** - Async runtime
+- [ ] Unit tests for models
+- [ ] Integration tests for API
+- [ ] E2E tests with mock server
+- [ ] CI/CD pipeline
+- [ ] Docker containerization
