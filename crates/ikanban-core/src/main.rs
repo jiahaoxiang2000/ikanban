@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use ikanban_core::{db, routes, AppState};
+use ikanban_core::{db, routes, services, AppState};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 fn get_database_path() -> PathBuf {
@@ -46,6 +46,12 @@ async fn main() -> anyhow::Result<()> {
 
     // Create application state
     let state = AppState::new(db);
+
+    // Start background services
+    let service_state = state.clone();
+    tokio::spawn(async move {
+        services::pr_monitor::start(service_state).await;
+    });
 
     // Build router
     let app = routes::router(state);

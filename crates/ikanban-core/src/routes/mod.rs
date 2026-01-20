@@ -2,6 +2,7 @@ mod health;
 mod projects;
 mod tasks;
 mod events;
+mod executions;
 
 use axum::Router;
 
@@ -19,4 +20,5 @@ fn api_router() -> Router<AppState> {
         .merge(projects::router())
         .merge(tasks::router())
         .merge(events::router())
+        .merge(executions::router())
 }
