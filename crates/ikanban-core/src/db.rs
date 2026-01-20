@@ -26,7 +26,12 @@ CREATE TABLE IF NOT EXISTS tasks (
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
-CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+
+    -- Core-2: Extended Project Model
+    ALTER TABLE projects ADD COLUMN repo_path TEXT;
+    ALTER TABLE projects ADD COLUMN archived BOOLEAN NOT NULL DEFAULT 0;
+    ALTER TABLE projects ADD COLUMN pinned BOOLEAN NOT NULL DEFAULT 0;
 "#;
 
 pub async fn create_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> {

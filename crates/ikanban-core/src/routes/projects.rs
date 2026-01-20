@@ -9,15 +9,23 @@ use uuid::Uuid;
 
 use crate::{
     error::AppError,
-    models::{ApiResponse, CreateProject, Project, UpdateProject, WsEvent},
+    models::{ApiResponse, CreateProject, Project, ProjectWithStatus, UpdateProject, WsEvent},
     AppState,
 };
 
 /// GET /api/projects - List all projects
 pub async fn list_projects(
     State(state): State<AppState>,
-) -> Result<Json<ApiResponse<Vec<Project>>>, AppError> {
-    let projects = Project::find_all(&state.pool).await?;
+) -> Result<Json<ApiResponse<Vec<ProjectWithStatus>>>, AppError> {
+    let projects = Project::find_all_with_status(&state.pool).await?;
+    Ok(Json(ApiResponse::success(projects)))
+}
+
+/// GET /api/projects/active - List most active projects
+pub async fn list_active_projects(
+    State(state): State<AppState>,
+) -> Result<Json<ApiResponse<Vec<ProjectWithStatus>>>, AppError> {
+    let projects = Project::find_most_active(&state.pool).await?;
     Ok(Json(ApiResponse::success(projects)))
 }
 
@@ -163,6 +171,7 @@ use tokio::sync::broadcast;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/projects", get(list_projects).post(create_project))
+        .route("/projects/active", get(list_active_projects))
         .route("/projects/stream/ws", get(stream_projects_ws))
         .route(
             "/projects/{id}",

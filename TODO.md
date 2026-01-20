@@ -12,10 +12,10 @@
 
 ### Core-2: Extended Project Model
 
-- [ ] **Core-2.1**: Add `repo_path` field (migration, struct, CRUD)
-- [ ] **Core-2.2**: Add `archived`/`pinned` flags (migration, struct, CRUD)
-- [ ] **Core-2.3**: Add `find_most_active()` query
-- [ ] **Core-2.4**: Implement `ProjectWithStatus` view struct + API endpoint
+- [x] **Core-2.1**: Add `repo_path` field (migration, struct, CRUD)
+- [x] **Core-2.2**: Add `archived`/`pinned` flags (migration, struct, CRUD)
+- [x] **Core-2.3**: Add `find_most_active()` query
+- [x] **Core-2.4**: Implement `ProjectWithStatus` view struct + API endpoint
 
 ### Core-3: Extended Task Model
 
