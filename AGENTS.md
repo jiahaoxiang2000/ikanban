@@ -5,6 +5,7 @@
 - Don't manually change code format. Use formatting tools.
 - NOT to update/create markdown docs unless asked.
 - Keep output concise.
+- When a TODO.md item is completed, update the TODO.md to mark it as done.
 
 ## Reference
 
