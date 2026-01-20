@@ -1,8 +1,8 @@
 # iKanban TODO
 
-## ikanban-core
+## Completed Features
 
-### Core-1: MVP Server (Completed)
+### MVP Server (Core-1)
 
 - [x] Setup dependencies (axum, tokio, sqlx, serde, uuid)
 - [x] Database layer (SQLite, Project/Task models & migrations)
@@ -10,136 +10,102 @@
 - [x] WebSocket support (project/task streams)
 - [x] Event broadcasting (in-memory bus, SSE endpoint)
 
-### Core-2: Extended Project Model
-
-- [x] **Core-2.1**: Add `repo_path` field (migration, struct, CRUD)
-- [x] **Core-2.2**: Add `archived`/`pinned` flags (migration, struct, CRUD)
-- [x] **Core-2.3**: Add `find_most_active()` query
-- [x] **Core-2.4**: Implement `ProjectWithStatus` view struct + API endpoint
-
-### Core-3: Extended Task Model
-
-- [ ] **Core-3.1**: Add `branch` and `working_dir` fields
-- [ ] **Core-3.2**: Add `InReview` and `Cancelled` status variants
-- [ ] **Core-3.3**: Add `parent_task_id` for subtasks
-- [ ] **Core-3.4**: Implement `TaskWithSessionStatus` view struct + API endpoint
-
-### Core-4: Session Management
-
-- [ ] **Core-4.1**: Create Session model (`models/session.rs`)
-- [ ] **Core-4.2**: Create sessions table migration
-- [ ] **Core-4.3**: Implement Session CRUD methods
-- [ ] **Core-4.4**: Create Session API routes (`routes/sessions.rs`)
-
-### Core-5: Execution Process System
-
-- [ ] **Core-5.1**: Create ExecutionProcess model (`models/execution.rs`)
-- [ ] **Core-5.2**: Create execution_processes table migration
-- [ ] **Core-5.3**: Implement ExecutionProcess CRUD methods
-- [ ] **Core-5.4**: Create ExecutionProcessLogs model
-- [ ] **Core-5.5**: Create Execution API routes (`routes/executions.rs`)
-
-### Core-6: CodingAgentTurn Entity
-
-- [ ] **Core-6.1**: Create CodingAgentTurn model
-- [ ] **Core-6.2**: Create coding_agent_turns table migration
-- [ ] **Core-6.3**: Implement CodingAgentTurn methods
-
-### Core-7: Merge Tracking
-
-- [ ] **Core-7.1**: Create Merge models (DirectMerge, PrMerge)
-- [ ] **Core-7.2**: Create merges table migration
-- [ ] **Core-7.3**: Implement Merge CRUD methods
-- [ ] **Core-7.4**: Create Merge API routes (`routes/merges.rs`)
-
-### Core-8: Real-time & WebSocket Enhancements
-
-- [ ] **Core-8.1**: Enhance event types (Session, Execution, Merge events)
-- [ ] **Core-8.2**: Implement log streaming via WebSocket
-- [ ] **Core-8.3**: PR monitoring background service
-
-### Core-9: Additional Features
-
-- [ ] **Core-9.1**: Tag/Template system
-- [ ] **Core-9.2**: Image attachments
-- [ ] **Core-9.3**: Scratch/Draft entity
-
-### Core-10: Testing & Polish
-
-- [ ] **Core-10.1**: Integration tests
-- [ ] **Core-10.2**: Error handling improvements
-- [ ] **Core-10.3**: Graceful shutdown
-
----
-
-## ikanban-tui
-
-### TUI-1: MVP Client (Completed)
+### MVP Client (TUI-1)
 
 - [x] Setup dependencies (ratatui, crossterm, reqwest, tokio-tungstenite)
 - [x] HTTP client for REST API (`api.rs`)
 - [x] TUI components (project list, task board)
 - [x] Keyboard navigation, input popup
 
-### TUI-2: WebSocket Integration
+---
 
-- [ ] **TUI-2.1**: Create WebSocket client module (`ws.rs`)
-- [ ] **TUI-2.2**: Integrate WebSocket with App state
-- [ ] **TUI-2.3**: Handle real-time updates
+## Active Development
 
-### TUI-3: Task Detail/Edit View
+### Extended Project Model
 
-- [ ] **TUI-3.1**: Create TaskDetailView component
-- [ ] **TUI-3.2**: Implement task editing
-- [ ] **TUI-3.3**: Add task status quick-change
+- [ ] Add `repo_path` field (migration, struct, CRUD)
+- [ ] Add `archived`/`pinned` flags (migration, struct, CRUD)
+- [ ] Add `find_most_active()` query
+- [ ] Implement `ProjectWithStatus` view struct + API endpoint
 
-### TUI-4: Project Detail View
+### Feature: Real-time & WebSocket Infrastructure
 
-- [ ] **TUI-4.1**: Create ProjectDetailView component
-- [ ] **TUI-4.2**: Implement project editing
+_Combines Core-8 and TUI-2_
 
-### TUI-5: Session Management UI
+- [ ] **Core**: Enhance event types (Session, Execution, Merge events)
+- [ ] **Core**: Implement log streaming via WebSocket
+- [ ] **Core**: PR monitoring background service
+- [ ] **TUI**: Create WebSocket client module (`ws.rs`) & Integrate with App state
+- [ ] **TUI**: Handle real-time updates in UI
 
-- [ ] **TUI-5.1**: Create SessionListView component
-- [ ] **TUI-5.2**: Implement session navigation
-- [ ] **TUI-5.3**: Create new session
+### Feature: Extended Task Management
 
-### TUI-6: Execution Log Viewer
+_Combines Core-3 and TUI-3_
 
-- [ ] **TUI-6.1**: Create ExecutionLogView component
-- [ ] **TUI-6.2**: Implement log streaming
-- [ ] **TUI-6.3**: Log navigation
+- [ ] **Core**: Add `branch` and `working_dir` fields
+- [ ] **Core**: Add `InReview` and `Cancelled` status variants
+- [ ] **Core**: Add `parent_task_id` for subtasks
+- [ ] **Core**: Implement `TaskWithSessionStatus` view struct + API endpoint
+- [ ] **TUI**: Create TaskDetailView component
+- [ ] **TUI**: Implement task editing & status quick-change
 
-### TUI-7: Status Indicators & Notifications
+### Feature: Session Management
 
-- [ ] **TUI-7.1**: Add status indicators to project list
-- [ ] **TUI-7.2**: Add status indicators to task board
-- [ ] **TUI-7.3**: Notification system
+_Combines Core-4 and TUI-5_
 
-### TUI-8: Enhanced Navigation & Shortcuts
+- [ ] **Core**: Create Session model (`models/session.rs`) & Migration
+- [ ] **Core**: Implement Session CRUD methods & API routes
+- [ ] **TUI**: Create SessionListView component
+- [ ] **TUI**: Implement session navigation & creation UI
 
-- [ ] **TUI-8.1**: Global keyboard shortcuts (`?`, `r`, `/`, `q`)
-- [ ] **TUI-8.2**: Project view shortcuts (`n`, `d`, `e`, `a`, `p`)
-- [ ] **TUI-8.3**: Task view shortcuts (`n`, `d`, `e`, `Space`, `s`)
+### Feature: Execution Process & Logs
 
-### TUI-9: UI Polish
+_Combines Core-5 and TUI-6_
 
-- [ ] **TUI-9.1**: Confirmation dialogs
-- [ ] **TUI-9.2**: Help overlay
-- [ ] **TUI-9.3**: Theme support
+- [ ] **Core**: Create ExecutionProcess model & Migration
+- [ ] **Core**: Implement ExecutionProcess CRUD & API
+- [ ] **Core**: Create ExecutionProcessLogs model
+- [ ] **TUI**: Create ExecutionLogView component
+- [ ] **TUI**: Implement log streaming & navigation
 
-### TUI-10: Error Handling & UX
+### Feature: Project Details (TUI)
 
-- [ ] **TUI-10.1**: Error display
-- [ ] **TUI-10.2**: Loading states
-- [ ] **TUI-10.3**: Offline mode
+_TUI-4 (Core support completed)_
+
+- [ ] **TUI**: Create ProjectDetailView component
+- [ ] **TUI**: Implement project editing
+
+### Feature: Merge Tracking
+
+_Core-7 (TUI pending)_
+
+- [ ] **Core**: Create Merge models (DirectMerge, PrMerge) & Migration
+- [ ] **Core**: Implement Merge CRUD methods & API routes
+
+### Feature: Coding Agent History
+
+_Core-6_
+
+- [ ] **Core**: Create CodingAgentTurn model & Migration
+- [ ] **Core**: Implement CodingAgentTurn methods
 
 ---
 
-## Cross-Cutting
+## Polish & Maintenance
 
-- [ ] Unit tests for models
-- [ ] Integration tests for API
-- [ ] E2E tests with mock server
-- [ ] CI/CD pipeline
-- [ ] Docker containerization
+### UI/UX Enhancements
+
+_Combines TUI-7, TUI-8, TUI-9, TUI-10_
+
+- [ ] **Status**: Add indicators to project list & task board
+- [ ] **Nav**: Global shortcuts (`?`, `r`, `/`, `q`) & View shortcuts
+- [ ] **Polish**: Confirmation dialogs, Help overlay, Theme support
+- [ ] **Reliability**: Error display, Loading states, Offline mode
+
+### Core Enhancements & Testing
+
+_Combines Core-9, Core-10, Cross-Cutting_
+
+- [ ] **Feat**: Tag/Template system, Image attachments, Scratch/Draft entity
+- [ ] **Code**: Integration tests, Error handling improvements, Graceful shutdown
+- [ ] **Infra**: CI/CD pipeline, Docker containerization, E2E tests
