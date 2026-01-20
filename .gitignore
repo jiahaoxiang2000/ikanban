@@ -8,6 +8,9 @@ Cargo.lock
 *.db-wal
 *.db-shm
 
+# .ikanban folder (contains data, config, and temp files)
+.ikanban/
+
 # IDE
 .idea/
 .vscode/

@@ -1,7 +1,15 @@
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use ikanban_core::{db, routes, AppState};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
+fn get_database_path() -> PathBuf {
+    let mut path = PathBuf::from(".ikanban");
+    path.push("data");
+    path.push("db.sqlite");
+    path
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -14,9 +22,18 @@ async fn main() -> anyhow::Result<()> {
         .with(filter)
         .init();
 
-    // Database URL from environment or default
+    // Database URL from environment or default to .ikanban/data/db.sqlite
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite:ikanban.db".to_string());
+        .unwrap_or_else(|_| format!("sqlite://{}", get_database_path().to_string_lossy()));
+
+    // Ensure the database directory exists
+    let db_path = get_database_path();
+    if let Some(parent) = db_path.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent)?;
+            tracing::info!("Created database directory: {}", parent.display());
+        }
+    }
 
     tracing::info!("Connecting to database: {}", database_url);
     let pool = db::create_pool(&database_url).await?;
