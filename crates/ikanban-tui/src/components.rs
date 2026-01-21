@@ -7,10 +7,10 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{action::Action, config::Config, tui::Event};
 
-pub mod projects;
-pub mod tasks;
 pub mod help;
 pub mod input;
+pub mod projects;
+pub mod tasks;
 
 /// `Component` is a trait that represents a visual and interactive element of the user interface.
 ///

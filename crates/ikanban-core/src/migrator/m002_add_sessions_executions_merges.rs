@@ -37,17 +37,46 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(ExecutionProcesses::Table)
                     .if_not_exists()
-                    .col(ColumnDef::new(ExecutionProcesses::Id).uuid().not_null().primary_key())
-                    .col(ColumnDef::new(ExecutionProcesses::SessionId).uuid().not_null())
-                    .col(ColumnDef::new(ExecutionProcesses::RunReason).string().not_null())
+                    .col(
+                        ColumnDef::new(ExecutionProcesses::Id)
+                            .uuid()
+                            .not_null()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(ExecutionProcesses::SessionId)
+                            .uuid()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ExecutionProcesses::RunReason)
+                            .string()
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(ExecutionProcesses::ExecutorAction).string())
-                    .col(ColumnDef::new(ExecutionProcesses::Status).string().not_null())
+                    .col(
+                        ColumnDef::new(ExecutionProcesses::Status)
+                            .string()
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(ExecutionProcesses::ExitCode).integer())
-                    .col(ColumnDef::new(ExecutionProcesses::Dropped).boolean().default(false))
+                    .col(
+                        ColumnDef::new(ExecutionProcesses::Dropped)
+                            .boolean()
+                            .default(false),
+                    )
                     .col(ColumnDef::new(ExecutionProcesses::StartedAt).timestamp())
                     .col(ColumnDef::new(ExecutionProcesses::CompletedAt).timestamp())
-                    .col(ColumnDef::new(ExecutionProcesses::CreatedAt).timestamp().not_null())
-                    .col(ColumnDef::new(ExecutionProcesses::UpdatedAt).timestamp().not_null())
+                    .col(
+                        ColumnDef::new(ExecutionProcesses::CreatedAt)
+                            .timestamp()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ExecutionProcesses::UpdatedAt)
+                            .timestamp()
+                            .not_null(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_execution_processes_session_id")
@@ -65,11 +94,28 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(DirectMerges::Table)
                     .if_not_exists()
-                    .col(ColumnDef::new(DirectMerges::Id).uuid().not_null().primary_key())
+                    .col(
+                        ColumnDef::new(DirectMerges::Id)
+                            .uuid()
+                            .not_null()
+                            .primary_key(),
+                    )
                     .col(ColumnDef::new(DirectMerges::ProjectId).uuid().not_null())
-                    .col(ColumnDef::new(DirectMerges::MergeCommit).string().not_null())
-                    .col(ColumnDef::new(DirectMerges::TargetBranch).string().not_null())
-                    .col(ColumnDef::new(DirectMerges::CreatedAt).timestamp().not_null())
+                    .col(
+                        ColumnDef::new(DirectMerges::MergeCommit)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(DirectMerges::TargetBranch)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(DirectMerges::CreatedAt)
+                            .timestamp()
+                            .not_null(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_direct_merges_project_id")

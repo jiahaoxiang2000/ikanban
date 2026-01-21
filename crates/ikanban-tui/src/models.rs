@@ -4,7 +4,10 @@ pub use ikanban_core::entities::execution_process_logs::Model as ExecutionProces
 pub use ikanban_core::entities::project::{
     CreateProject, Model as Project, ProjectWithStatus, UpdateProject,
 };
-pub use ikanban_core::entities::response::{ApiResponse, WsEvent};
+pub use ikanban_core::entities::response::{
+    ApiResponse, SubscribeTarget, WsEvent, WsMessage, WsRequest, WsResponse, WsResponseData,
+};
+pub use ikanban_core::entities::session::Model as Session;
 pub use ikanban_core::entities::task::{CreateTask, Model as Task, TaskStatus, UpdateTask};
 
 /// Extension trait for TaskStatus with TUI-specific display helpers

@@ -1,7 +1,7 @@
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use std::time::Duration;
-use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
 use tokio::time::sleep;
-use tracing::{info, error};
+use tracing::{error, info};
 
 use crate::AppState;
 use crate::entities::pr_merge;
@@ -30,7 +30,7 @@ async fn check_prs(state: &AppState) -> anyhow::Result<()> {
         // TODO: Implement actual GitHub API check
         // For now, we just log that we are monitoring
         // info!("Monitoring PR: {}", pr.pr_url);
-        
+
         // Mock update logic (commented out)
         /*
         let new_status = check_github_status(&pr.pr_url).await?;
@@ -38,7 +38,7 @@ async fn check_prs(state: &AppState) -> anyhow::Result<()> {
             let mut active: pr_merge::ActiveModel = pr.into();
             active.status = ActiveValue::Set(new_status.clone());
             active.updated_at = ActiveValue::Set(chrono::Utc::now().naive_utc());
-            
+
             if new_status == "merged" {
                 active.merged_at = ActiveValue::Set(Some(chrono::Utc::now().naive_utc()));
             }

@@ -1,13 +1,24 @@
-use sea_orm::entity::prelude::*;
-use serde::{Deserialize, Serialize};
 use chrono::Utc;
+use sea_orm::entity::prelude::*;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait,
-    QueryFilter, QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    Set,
 };
-use std::cmp::Ordering;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Ord,
+    PartialOrd,
+    EnumIter,
+    DeriveActiveEnum,
+    Serialize,
+    Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Text")]
 #[serde(rename_all = "lowercase")]
 pub enum TaskStatus {
@@ -84,7 +95,7 @@ impl ActiveModelBehavior for ActiveModel {}
 
 // --- DTOs and Business Logic ---
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateTask {
     pub project_id: Uuid,
     pub title: String,
@@ -95,7 +106,7 @@ pub struct CreateTask {
     pub parent_task_id: Option<Uuid>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateTask {
     pub title: Option<String>,
     pub description: Option<String>,
@@ -105,12 +116,12 @@ pub struct UpdateTask {
     pub parent_task_id: Option<Uuid>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct TaskQuery {
     pub project_id: Uuid,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskWithSessionStatus {
     #[serde(flatten)]
     pub task: Model,

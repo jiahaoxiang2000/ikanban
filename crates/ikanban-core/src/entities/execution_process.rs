@@ -44,7 +44,7 @@ impl ActiveModelBehavior for ActiveModel {}
 
 // --- DTOs and Business Logic ---
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateExecutionProcess {
     pub session_id: Uuid,
     pub run_reason: String,
@@ -96,7 +96,7 @@ impl Model {
 
         let mut model: ActiveModel = existing.into();
         let now = chrono::Utc::now().naive_utc();
-        
+
         model.status = Set("killed".to_string());
         model.completed_at = Set(Some(now));
         model.updated_at = Set(now);

@@ -1,7 +1,6 @@
 use clap::Parser;
 
 mod action;
-mod api;
 mod app;
 mod cli;
 mod components;
@@ -10,14 +9,10 @@ mod errors;
 mod logging;
 mod models;
 mod tui;
-mod ws;
+mod ws_client;
 
-use api::ApiClient;
-use app::{App, Mode};
+use app::App;
 use cli::Cli;
-use components::{help::Help, input::Input, projects::Projects, tasks::Tasks};
-use models::{Project, Task, WsEvent};
-use ws::WebSocketClient;
 
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {

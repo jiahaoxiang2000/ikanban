@@ -6,12 +6,11 @@ use tracing::{debug, info};
 
 use crate::{
     action::{Action, InputField},
-    api::ApiClient,
     components::{Component, help::Help, input::Input, projects::Projects, tasks::Tasks},
     config::Config,
-    models::{Project, Task, WsEvent},
+    models::{Project, SubscribeTarget, Task, WsEvent},
     tui::{Event, Tui},
-    ws::WebSocketClient,
+    ws_client::WsClient,
 };
 
 /// Current view/screen in the TUI
@@ -44,7 +43,7 @@ pub struct App {
     help_component: Help,
 
     // iKanban specific state
-    pub api: ApiClient,
+    pub ws_client: WsClient,
     pub projects: Vec<Project>,
     pub tasks: Vec<Task>,
     pub selected_project_index: usize,
@@ -58,10 +57,6 @@ pub struct App {
 
     // WebSocket state
     ws_event_rx: Option<mpsc::UnboundedReceiver<WsEvent>>,
-    ws_event_tx: Option<mpsc::UnboundedSender<WsEvent>>,
-    projects_ws: Option<WebSocketClient>,
-    tasks_ws: Option<WebSocketClient>,
-    execution_logs_ws: Option<WebSocketClient>,
     current_session_id: Option<uuid::Uuid>,
     executions: Vec<crate::models::ExecutionProcess>,
     current_execution_logs: Vec<crate::models::ExecutionProcessLog>,
@@ -70,11 +65,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(
-        tick_rate: f64,
-        frame_rate: f64,
-        server_url: &str,
-    ) -> color_eyre::Result<Self> {
+    pub fn new(tick_rate: f64, frame_rate: f64, server_url: &str) -> color_eyre::Result<Self> {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
         let (ws_event_tx, ws_event_rx) = mpsc::unbounded_channel::<WsEvent>();
 
@@ -82,6 +73,8 @@ impl App {
         let tasks_component = Tasks::new();
         let input_component = Input::new();
         let help_component = Help::new();
+
+        let ws_client = WsClient::new(server_url, ws_event_tx);
 
         Ok(Self {
             config: Config::new()?,
@@ -97,7 +90,7 @@ impl App {
             tasks_component,
             input_component,
             help_component,
-            api: ApiClient::new(server_url),
+            ws_client,
             projects: Vec::new(),
             tasks: Vec::new(),
             selected_project_index: 0,
@@ -109,10 +102,6 @@ impl App {
             current_project_id: None,
             is_editing: false,
             ws_event_rx: Some(ws_event_rx),
-            ws_event_tx: Some(ws_event_tx),
-            projects_ws: None,
-            tasks_ws: None,
-            execution_logs_ws: None,
             current_session_id: None,
             executions: Vec::new(),
             current_execution_logs: Vec::new(),
@@ -128,26 +117,38 @@ impl App {
         tui.enter()?;
 
         // Register action handlers
-        self.projects_component.register_action_handler(self.action_tx.clone())?;
-        self.tasks_component.register_action_handler(self.action_tx.clone())?;
-        self.input_component.register_action_handler(self.action_tx.clone())?;
-        self.help_component.register_action_handler(self.action_tx.clone())?;
+        self.projects_component
+            .register_action_handler(self.action_tx.clone())?;
+        self.tasks_component
+            .register_action_handler(self.action_tx.clone())?;
+        self.input_component
+            .register_action_handler(self.action_tx.clone())?;
+        self.help_component
+            .register_action_handler(self.action_tx.clone())?;
 
-        // Load initial data
+        // Load initial data and subscribe to projects
         if let Err(e) = self.load_projects().await {
             self.set_status(&format!("Failed to connect: {}", e));
         } else {
-            self.connect_projects_ws();
+            if let Err(e) = self.ws_client.subscribe(SubscribeTarget::Projects).await {
+                self.set_status(&format!("Failed to subscribe to projects: {}", e));
+            } else {
+                self.set_status("Connected to projects stream");
+            }
         }
 
         // Initialize help shortcuts
         self.update_help_shortcuts();
 
         // Register config handlers
-        self.projects_component.register_config_handler(self.config.clone())?;
-        self.tasks_component.register_config_handler(self.config.clone())?;
-        self.input_component.register_config_handler(self.config.clone())?;
-        self.help_component.register_config_handler(self.config.clone())?;
+        self.projects_component
+            .register_config_handler(self.config.clone())?;
+        self.tasks_component
+            .register_config_handler(self.config.clone())?;
+        self.input_component
+            .register_config_handler(self.config.clone())?;
+        self.help_component
+            .register_config_handler(self.config.clone())?;
 
         // Initialize components
         self.projects_component.init(tui.size()?)?;
@@ -159,7 +160,7 @@ impl App {
         loop {
             self.handle_events(&mut tui).await?;
             self.process_ws_events().await?;
-            self.handle_actions(&mut tui)?;
+            self.handle_actions(&mut tui).await?;
             if self.should_suspend {
                 tui.suspend()?;
                 action_tx.send(Action::Resume)?;
@@ -207,7 +208,7 @@ impl App {
 
     fn handle_key_event(&mut self, key: KeyEvent) -> color_eyre::Result<()> {
         let action_tx = self.action_tx.clone();
-        
+
         // If input modal is visible, handle input-specific keys
         if self.input_component.is_visible() {
             use crossterm::event::KeyCode;
@@ -259,7 +260,7 @@ impl App {
                 _ => {}
             }
         }
-        
+
         // Normal mode keybindings
         let Some(keymap) = self.config.keybindings.0.get(&self.mode) else {
             return Ok(());
@@ -280,26 +281,12 @@ impl App {
         Ok(())
     }
 
-    fn handle_actions(&mut self, tui: &mut Tui) -> color_eyre::Result<()> {
+    async fn handle_actions(&mut self, tui: &mut Tui) -> color_eyre::Result<()> {
         while let Ok(action) = self.action_rx.try_recv() {
             if action != Action::Tick && action != Action::Render {
                 debug!("{action:?}");
             }
-            
-            // Special handling for non-cloneable actions
-            match &action {
-                Action::SetTasks(_) => {
-                    // Handle SetTasks specially since it contains Vec which can't be cheaply cloned
-                    if let Action::SetTasks(tasks) = action {
-                        self.tasks = tasks;
-                        self.tasks.sort_by(|a, b| a.status.cmp(&b.status));
-                        self.tasks_component.set_tasks(self.tasks.clone());
-                    }
-                    continue; // Skip the rest of the loop since we can't clone this action
-                }
-                _ => {}
-            }
-            
+
             match action {
                 Action::Tick => {
                     self.last_tick_key_events.drain(..);
@@ -312,7 +299,7 @@ impl App {
                 Action::Render => self.render(tui)?,
                 Action::Help => self.toggle_help(),
                 Action::CloseHelpModal => self.close_help(),
-                
+
                 // Navigation actions
                 Action::NextProject => {
                     if self.mode == Mode::Projects {
@@ -326,39 +313,7 @@ impl App {
                         self.selected_project_index = self.projects_component.selected_index;
                     }
                 }
-                
-                // View switching actions
-                Action::EnterTasksView => {
-                    if self.mode == Mode::Projects {
-                        if let Some(project) = self.projects_component.selected_project() {
-                            let project_id = project.id;
-                            self.mode = Mode::Tasks;
-                            self.update_help_shortcuts();
-                            self.connect_tasks_ws(project_id);
-                            // Load tasks asynchronously
-                            let api = self.api.clone();
-                            let action_tx = self.action_tx.clone();
-                            tokio::spawn(async move {
-                                match api.list_tasks(project_id).await {
-                                    Ok(tasks) => {
-                                        let _ = action_tx.send(Action::SetTasks(tasks));
-                                    }
-                                    Err(e) => {
-                                        let _ = action_tx.send(Action::Error(format!("Failed to load tasks: {}", e)));
-                                    }
-                                }
-                            });
-                        }
-                    }
-                }
-                Action::EnterProjectsView => {
-                    if self.mode == Mode::Tasks {
-                        self.disconnect_tasks_ws();
-                        self.mode = Mode::Projects;
-                        self.update_help_shortcuts();
-                    }
-                }
-                
+
                 _ => {}
             }
             // Update only the active component based on mode
@@ -399,12 +354,16 @@ impl App {
             match self.mode {
                 Mode::Projects => {
                     if let Err(err) = self.projects_component.draw(frame, area) {
-                        let _ = self.action_tx.send(Action::Error(format!("Failed to draw projects: {:?}", err)));
+                        let _ = self
+                            .action_tx
+                            .send(Action::Error(format!("Failed to draw projects: {:?}", err)));
                     }
                 }
                 Mode::Tasks => {
                     if let Err(err) = self.tasks_component.draw(frame, area) {
-                        let _ = self.action_tx.send(Action::Error(format!("Failed to draw tasks: {:?}", err)));
+                        let _ = self
+                            .action_tx
+                            .send(Action::Error(format!("Failed to draw tasks: {:?}", err)));
                     }
                 }
                 Mode::ProjectDetail | Mode::TaskDetail | Mode::ExecutionLogs => {
@@ -413,10 +372,14 @@ impl App {
             }
             // Always draw modals on top if visible
             if let Err(err) = self.input_component.draw(frame, area) {
-                let _ = self.action_tx.send(Action::Error(format!("Failed to draw input: {:?}", err)));
+                let _ = self
+                    .action_tx
+                    .send(Action::Error(format!("Failed to draw input: {:?}", err)));
             }
             if let Err(err) = self.help_component.draw(frame, area) {
-                let _ = self.action_tx.send(Action::Error(format!("Failed to draw help: {:?}", err)));
+                let _ = self
+                    .action_tx
+                    .send(Action::Error(format!("Failed to draw help: {:?}", err)));
             }
         })?;
         Ok(())
@@ -429,7 +392,8 @@ impl App {
 
     pub fn toggle_help(&mut self) {
         self.help_component.toggle();
-        self.help_component.set_shortcuts(self.help_shortcuts.clone(), self.help_title.clone());
+        self.help_component
+            .set_shortcuts(self.help_shortcuts.clone(), self.help_title.clone());
     }
 
     pub fn close_help(&mut self) {
@@ -476,7 +440,7 @@ impl App {
     }
 
     pub async fn load_projects(&mut self) -> anyhow::Result<()> {
-        self.projects = self.api.list_projects().await?;
+        self.projects = self.ws_client.list_projects().await?;
         if self.selected_project_index >= self.projects.len() {
             self.selected_project_index = self.projects.len().saturating_sub(1);
         }
@@ -486,42 +450,45 @@ impl App {
     }
 
     pub async fn load_tasks(&mut self, project_id: uuid::Uuid) -> anyhow::Result<()> {
-        self.tasks = self.api.list_tasks(project_id).await?;
+        self.tasks = self.ws_client.list_tasks(project_id).await?;
         self.selected_task_index = 0;
         // Update tasks component
         self.tasks_component.set_tasks(self.tasks.clone());
         Ok(())
     }
 
-    pub fn connect_projects_ws(&mut self) {
-        let event_tx = self
-            .ws_event_tx()
-            .expect("WebSocket event channel should be available");
-        self.projects_ws = Some(WebSocketClient::projects(&self.api.base_url(), event_tx));
-        self.set_status("Connected to projects stream");
+    pub async fn connect_tasks_ws(&mut self, project_id: uuid::Uuid) {
+        // Unsubscribe from previous project's tasks if any
+        if let Some(old_project_id) = self.current_project_id {
+            let _ = self
+                .ws_client
+                .unsubscribe(SubscribeTarget::Tasks {
+                    project_id: old_project_id,
+                })
+                .await;
+        }
+
+        // Subscribe to new project's tasks
+        if let Err(e) = self
+            .ws_client
+            .subscribe(SubscribeTarget::Tasks { project_id })
+            .await
+        {
+            self.set_status(&format!("Failed to subscribe to tasks: {}", e));
+        } else {
+            self.current_project_id = Some(project_id);
+            self.set_status("Connected to tasks stream");
+        }
     }
 
-    pub fn connect_tasks_ws(&mut self, project_id: uuid::Uuid) {
-        self.tasks_ws = None;
-        let event_tx = self
-            .ws_event_tx()
-            .expect("WebSocket event channel should be available");
-        self.tasks_ws = Some(WebSocketClient::tasks(
-            &self.api.base_url(),
-            project_id,
-            event_tx,
-        ));
-        self.current_project_id = Some(project_id);
-        self.set_status(&format!("Connected to tasks stream"));
-    }
-
-    pub fn disconnect_tasks_ws(&mut self) {
-        self.tasks_ws = None;
+    pub async fn disconnect_tasks_ws(&mut self) {
+        if let Some(project_id) = self.current_project_id {
+            let _ = self
+                .ws_client
+                .unsubscribe(SubscribeTarget::Tasks { project_id })
+                .await;
+        }
         self.current_project_id = None;
-    }
-
-    fn ws_event_tx(&self) -> Option<mpsc::UnboundedSender<WsEvent>> {
-        self.ws_event_tx.clone()
     }
 
     pub async fn process_ws_events(&mut self) -> color_eyre::Result<()> {
@@ -562,8 +529,7 @@ impl App {
             WsEvent::TaskCreated(task) => {
                 if Some(task.project_id) == self.current_project_id {
                     self.tasks.push(task.clone());
-                    self.tasks
-                        .sort_by(|a, b| a.status.cmp(&b.status));
+                    self.tasks.sort_by(|a, b| a.status.cmp(&b.status));
                     self.tasks_component.set_tasks(self.tasks.clone());
                     self.set_status("New task created");
                 }
@@ -573,8 +539,7 @@ impl App {
                     if let Some(existing) = self.tasks.iter_mut().find(|t| t.id == task.id) {
                         *existing = task.clone();
                     }
-                    self.tasks
-                        .sort_by(|a, b| a.status.cmp(&b.status));
+                    self.tasks.sort_by(|a, b| a.status.cmp(&b.status));
                     self.tasks_component.set_tasks(self.tasks.clone());
                     self.set_status("Task updated");
                 }
@@ -586,9 +551,6 @@ impl App {
                 }
                 self.tasks_component.set_tasks(self.tasks.clone());
                 self.set_status("Task deleted");
-            }
-            WsEvent::Connected => {
-                self.set_status("WebSocket connected");
             }
             _ => {}
         }

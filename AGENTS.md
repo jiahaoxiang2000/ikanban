@@ -15,8 +15,10 @@
 ## Architecture
 
 ```
-TUI/Web Client <--HTTP/WS--> iKanban Core <--> SQLite
+TUI/Web Client <--WebSocket--> iKanban Core <--> SQLite
 ```
+
+All communication uses WebSocket (no REST API). Single endpoint: `GET /api/ws`
 
 ## Data Model
 
@@ -27,37 +29,38 @@ Project (1:1 Repo)
               └── ExecutionProcess (1:N)
 ```
 
-## API Endpoints
+## WebSocket Protocol
 
-### Projects
+### Connection
+- Endpoint: `ws://server/api/ws`
+- All operations use request/response pattern over single WebSocket connection
+- Events are broadcast to subscribed clients
 
-- `GET/POST /api/projects`, `GET/PUT/DELETE /api/projects/{id}`
-- `GET /api/projects/stream/ws`
+### Message Types
 
-### Tasks
+**Request** (client → server):
+```json
+{"type": "Request", "payload": {"id": "uuid", "action": "ListProjects"}}
+```
 
-- `GET /api/tasks?project_id={id}`, `POST /api/tasks`
-- `GET/PUT/DELETE /api/tasks/{id}`
-- `GET /api/tasks/stream/ws?project_id={id}`
+**Response** (server → client):
+```json
+{"type": "Response", "payload": {"id": "uuid", "status": "Success", "data": {...}}}
+```
 
-### Sessions (Planned)
+**Event** (server → client, broadcast):
+```json
+{"type": "Event", "payload": {"event": "ProjectCreated", "payload": {...}}}
+```
 
-- `GET/POST /api/tasks/{tid}/sessions`
-- `GET /api/tasks/{tid}/sessions/{sid}`
+### Operations
 
-### Executions (Planned)
-
-- `GET/POST .../sessions/{sid}/executions`
-- `GET .../executions/{eid}`, `POST .../executions/{eid}/stop`
-- `GET .../executions/{eid}/logs`, `GET .../executions/{eid}/logs/stream`
-
-### Merges (Planned)
-
-- `GET/POST /api/projects/{pid}/merges/direct|pr`
-
-### Events
-
-- `GET /api/events` (SSE)
+**Projects**: ListProjects, GetProject, CreateProject, UpdateProject, DeleteProject  
+**Tasks**: ListTasks, GetTask, CreateTask, UpdateTask, DeleteTask  
+**Sessions**: ListSessions, GetSession, CreateSession  
+**Executions**: ListExecutions, GetExecution, CreateExecution, StopExecution  
+**Logs**: GetExecutionLogs, CreateExecutionLog  
+**Subscriptions**: Subscribe, Unsubscribe (Projects | Tasks | ExecutionLogs)
 
 ## Data Models
 
@@ -108,7 +111,7 @@ PrMerge { id, project_id, target_branch, pr_number, pr_url, status, merged_at, c
 ## Tech Stack
 
 - **Core**: axum, tokio, sea-orm (SQLite), serde, uuid, chrono, tracing
-- **TUI**: ratatui, crossterm, reqwest, tokio-tungstenite
+- **TUI**: ratatui, crossterm, tokio-tungstenite
 
 ## Database & Migrations
 

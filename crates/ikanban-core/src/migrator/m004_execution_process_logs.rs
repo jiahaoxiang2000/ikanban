@@ -12,16 +12,44 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(ExecutionProcessLogs::Table)
                     .if_not_exists()
-                    .col(ColumnDef::new(ExecutionProcessLogs::Id).uuid().not_null().primary_key())
-                    .col(ColumnDef::new(ExecutionProcessLogs::ExecutionProcessId).uuid().not_null())
-                    .col(ColumnDef::new(ExecutionProcessLogs::Level).string().not_null())
-                    .col(ColumnDef::new(ExecutionProcessLogs::Message).string().not_null())
-                    .col(ColumnDef::new(ExecutionProcessLogs::Timestamp).timestamp().not_null())
-                    .col(ColumnDef::new(ExecutionProcessLogs::CreatedAt).timestamp().not_null())
+                    .col(
+                        ColumnDef::new(ExecutionProcessLogs::Id)
+                            .uuid()
+                            .not_null()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(ExecutionProcessLogs::ExecutionProcessId)
+                            .uuid()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ExecutionProcessLogs::Level)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ExecutionProcessLogs::Message)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ExecutionProcessLogs::Timestamp)
+                            .timestamp()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ExecutionProcessLogs::CreatedAt)
+                            .timestamp()
+                            .not_null(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_execution_process_logs_execution_process_id")
-                            .from(ExecutionProcessLogs::Table, ExecutionProcessLogs::ExecutionProcessId)
+                            .from(
+                                ExecutionProcessLogs::Table,
+                                ExecutionProcessLogs::ExecutionProcessId,
+                            )
                             .to(ExecutionProcesses::Table, ExecutionProcesses::Id)
                             .on_delete(ForeignKeyAction::Cascade),
                     )
@@ -55,11 +83,19 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_index(Index::drop().name("idx_execution_process_logs_timestamp").to_owned())
+            .drop_index(
+                Index::drop()
+                    .name("idx_execution_process_logs_timestamp")
+                    .to_owned(),
+            )
             .await?;
 
         manager
-            .drop_index(Index::drop().name("idx_execution_process_logs_execution_process_id").to_owned())
+            .drop_index(
+                Index::drop()
+                    .name("idx_execution_process_logs_execution_process_id")
+                    .to_owned(),
+            )
             .await?;
 
         manager

@@ -1,10 +1,10 @@
-use sea_orm::entity::prelude::*;
-use serde::{Deserialize, Serialize};
 use chrono::Utc;
+use sea_orm::entity::prelude::*;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait,
-    QueryFilter, QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    Set,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::entities::task;
 
@@ -38,14 +38,14 @@ impl ActiveModelBehavior for ActiveModel {}
 
 // --- DTOs and Business Logic ---
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateProject {
     pub name: String,
     pub description: Option<String>,
     pub repo_path: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateProject {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -54,7 +54,7 @@ pub struct UpdateProject {
     pub pinned: Option<bool>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectWithStatus {
     #[serde(flatten)]
     pub project: Model,
@@ -73,7 +73,9 @@ impl Model {
             .await
     }
 
-    pub async fn find_all_with_status(db: &DatabaseConnection) -> Result<Vec<ProjectWithStatus>, DbErr> {
+    pub async fn find_all_with_status(
+        db: &DatabaseConnection,
+    ) -> Result<Vec<ProjectWithStatus>, DbErr> {
         let projects = Self::find_all(db).await?;
         let mut result = Vec::with_capacity(projects.len());
 
@@ -101,16 +103,18 @@ impl Model {
         Ok(result)
     }
 
-    pub async fn find_most_active(db: &DatabaseConnection) -> Result<Vec<ProjectWithStatus>, DbErr> {
+    pub async fn find_most_active(
+        db: &DatabaseConnection,
+    ) -> Result<Vec<ProjectWithStatus>, DbErr> {
         let mut projects_with_status = Self::find_all_with_status(db).await?;
-        
+
         // Sort by active_task_count desc, then updated_at desc
         projects_with_status.sort_by(|a, b| {
             b.active_task_count
                 .cmp(&a.active_task_count)
                 .then_with(|| b.project.updated_at.cmp(&a.project.updated_at))
         });
-        
+
         projects_with_status.truncate(5);
         Ok(projects_with_status)
     }
@@ -146,7 +150,7 @@ impl Model {
         };
 
         let mut model: ActiveModel = existing.into();
-        
+
         if let Some(name) = &payload.name {
             model.name = Set(name.clone());
         }

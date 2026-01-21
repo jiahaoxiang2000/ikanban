@@ -1,8 +1,8 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use ikanban_core::{db, routes, services, AppState};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use ikanban_core::{AppState, db, routes, services};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 fn get_database_path() -> PathBuf {
     let mut path = PathBuf::from(".ikanban");
@@ -21,8 +21,6 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .with(filter)
         .init();
-
-
 
     // Ensure the database directory exists
     let db_path = get_database_path();

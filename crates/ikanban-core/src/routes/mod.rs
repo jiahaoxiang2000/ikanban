@@ -1,9 +1,5 @@
 mod health;
-mod projects;
-mod tasks;
-mod sessions;
-mod events;
-mod executions;
+mod ws;
 
 use axum::Router;
 
@@ -17,10 +13,5 @@ pub fn router(state: AppState) -> Router {
 }
 
 fn api_router() -> Router<AppState> {
-    Router::new()
-        .merge(projects::router())
-        .merge(tasks::router())
-        .merge(sessions::router())
-        .merge(events::router())
-        .merge(executions::router())
+    Router::new().merge(ws::router())
 }

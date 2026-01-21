@@ -1,5 +1,7 @@
 use sea_orm::entity::prelude::*;
-use sea_orm::{ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryOrder, QuerySelect, QueryFilter, Set};
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
@@ -68,7 +70,7 @@ impl LogLevel {
 
 // --- DTOs and Business Logic ---
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateExecutionProcessLog {
     pub execution_process_id: Uuid,
     pub level: String,

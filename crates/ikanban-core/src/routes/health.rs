@@ -1,6 +1,6 @@
-use axum::{routing::get, Json, Router};
+use axum::{Json, Router, routing::get};
 
-use crate::{entities::response::ApiResponse, AppState};
+use crate::{AppState, entities::response::ApiResponse};
 
 pub async fn health_check() -> Json<ApiResponse<String>> {
     Json(ApiResponse::success("OK".to_string()))

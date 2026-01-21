@@ -1,9 +1,9 @@
 use sea_orm::entity::prelude::*;
-use serde::{Deserialize, Serialize};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait,
-    QueryFilter, QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    Set,
 };
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "sessions")]
@@ -49,7 +49,7 @@ impl ActiveModelBehavior for ActiveModel {}
 
 // --- DTOs and Business Logic ---
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSession {
     pub task_id: Uuid,
     pub executor: String,
