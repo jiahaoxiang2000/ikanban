@@ -54,6 +54,7 @@ pub struct App {
     pub help_shortcuts: Vec<(String, String)>,
     pub help_title: String,
     pub current_project_id: Option<uuid::Uuid>,
+    pub is_editing: bool, // Track if we're editing (true) or creating (false)
 
     // WebSocket state
     ws_event_rx: Option<mpsc::UnboundedReceiver<WsEvent>>,
@@ -106,6 +107,7 @@ impl App {
             help_shortcuts: Vec::new(),
             help_title: String::new(),
             current_project_id: None,
+            is_editing: false,
             ws_event_rx: Some(ws_event_rx),
             ws_event_tx: Some(ws_event_tx),
             projects_ws: None,
@@ -328,6 +330,198 @@ impl App {
                     }
                 }
                 
+                // Input actions
+                Action::StartInput(field) => {
+                    self.input_component.start(field, format!("{:?}", self.mode));
+                }
+                Action::StartInputForNew(field) => {
+                    self.is_editing = false;
+                    self.input_component.start(field, format!("{:?}", self.mode));
+                }
+                Action::StartInputForEdit(field) => {
+                    self.is_editing = true;
+                    // Pre-fill with current value
+                    match field {
+                        InputField::ProjectName => {
+                            if let Some(project) = self.projects_component.selected_project() {
+                                self.input_component.start(field, format!("{:?}", self.mode));
+                                // TODO: Pre-fill the input with project.name
+                            }
+                        }
+                        InputField::TaskTitle => {
+                            if let Some(task) = self.tasks_component.selected_task() {
+                                self.input_component.start(field, format!("{:?}", self.mode));
+                                // TODO: Pre-fill the input with task.title
+                            }
+                        }
+                        _ => {
+                            self.input_component.start(field, format!("{:?}", self.mode));
+                        }
+                    }
+                }
+                Action::SubmitInput => {
+                    let input = self.input_component.input().to_string();
+                    let field = self.input_component.field();
+                    self.input_component.cancel();
+                    
+                    if input.trim().is_empty() {
+                        return Ok(());
+                    }
+                    
+                    match field {
+                        InputField::ProjectName => {
+                            if self.mode == Mode::Projects {
+                                // Check if we're editing or creating
+                                if self.is_editing {
+                                    // Editing existing project
+                                    if let Some(project) = self.projects_component.selected_project() {
+                                        let project_id = project.id;
+                                        let api = self.api.clone();
+                                        let action_tx = self.action_tx.clone();
+                                        let payload = crate::models::UpdateProject {
+                                            name: Some(input),
+                                            description: None,
+                                            repo_path: None,
+                                            archived: None,
+                                            pinned: None,
+                                        };
+                                        tokio::spawn(async move {
+                                            if let Err(e) = api.update_project(project_id, &payload).await {
+                                                let _ = action_tx.send(Action::Error(format!("Failed to update project: {}", e)));
+                                            }
+                                        });
+                                    }
+                                } else {
+                                    // Creating new project
+                                    let api = self.api.clone();
+                                    let action_tx = self.action_tx.clone();
+                                    let payload = crate::models::CreateProject {
+                                        name: input,
+                                        description: None,
+                                        repo_path: None,
+                                    };
+                                    tokio::spawn(async move {
+                                        if let Err(e) = api.create_project(&payload).await {
+                                            let _ = action_tx.send(Action::Error(format!("Failed to create project: {}", e)));
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                        InputField::TaskTitle => {
+                            if self.mode == Mode::Tasks {
+                                if let Some(project_id) = self.current_project_id {
+                                    // Check if we're editing or creating
+                                    if self.is_editing {
+                                        // Editing existing task
+                                        if let Some(task) = self.tasks_component.selected_task() {
+                                            let task_id = task.id;
+                                            let api = self.api.clone();
+                                            let action_tx = self.action_tx.clone();
+                                            let payload = crate::models::UpdateTask {
+                                                title: Some(input),
+                                                description: None,
+                                                status: None,
+                                                branch: None,
+                                                working_dir: None,
+                                                parent_task_id: None,
+                                            };
+                                            tokio::spawn(async move {
+                                                if let Err(e) = api.update_task(task_id, &payload).await {
+                                                    let _ = action_tx.send(Action::Error(format!("Failed to update task: {}", e)));
+                                                }
+                                            });
+                                        }
+                                    } else {
+                                        // Creating new task
+                                        let api = self.api.clone();
+                                        let action_tx = self.action_tx.clone();
+                                        let payload = crate::models::CreateTask {
+                                            project_id,
+                                            title: input,
+                                            description: None,
+                                            status: None,
+                                            branch: None,
+                                            working_dir: None,
+                                            parent_task_id: None,
+                                        };
+                                        tokio::spawn(async move {
+                                            if let Err(e) = api.create_task(&payload).await {
+                                                let _ = action_tx.send(Action::Error(format!("Failed to create task: {}", e)));
+                                            }
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Action::CancelInput => {
+                    self.input_component.cancel();
+                }
+                
+                // Delete actions
+                Action::DeleteSelectedProject => {
+                    if self.mode == Mode::Projects {
+                        if let Some(project) = self.projects_component.selected_project() {
+                            let project_id = project.id;
+                            let api = self.api.clone();
+                            let action_tx = self.action_tx.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = api.delete_project(project_id).await {
+                                    let _ = action_tx.send(Action::Error(format!("Failed to delete project: {}", e)));
+                                }
+                            });
+                        }
+                    }
+                }
+                Action::DeleteSelectedTask => {
+                    if self.mode == Mode::Tasks {
+                        if let Some(task) = self.tasks_component.selected_task() {
+                            let task_id = task.id;
+                            let api = self.api.clone();
+                            let action_tx = self.action_tx.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = api.delete_task(task_id).await {
+                                    let _ = action_tx.send(Action::Error(format!("Failed to delete task: {}", e)));
+                                }
+                            });
+                        }
+                    }
+                }
+                
+                // Move task to next status
+                Action::MoveTaskToNextStatus => {
+                    if self.mode == Mode::Tasks {
+                        if let Some(task) = self.tasks_component.selected_task() {
+                            let task_id = task.id;
+                            let next_status = match task.status {
+                                crate::models::TaskStatus::Todo => crate::models::TaskStatus::InProgress,
+                                crate::models::TaskStatus::InProgress => crate::models::TaskStatus::InReview,
+                                crate::models::TaskStatus::InReview => crate::models::TaskStatus::Done,
+                                crate::models::TaskStatus::Done => crate::models::TaskStatus::Todo,
+                                crate::models::TaskStatus::Cancelled => crate::models::TaskStatus::Todo,
+                            };
+                            let api = self.api.clone();
+                            let action_tx = self.action_tx.clone();
+                            let payload = crate::models::UpdateTask {
+                                title: None,
+                                description: None,
+                                status: Some(next_status),
+                                branch: None,
+                                working_dir: None,
+                                parent_task_id: None,
+                            };
+                            tokio::spawn(async move {
+                                if let Err(e) = api.update_task(task_id, &payload).await {
+                                    let _ = action_tx.send(Action::Error(format!("Failed to move task: {}", e)));
+                                }
+                            });
+                        }
+                    }
+                }
+                
                 _ => {}
             }
             // Update only the active component based on mode
@@ -397,31 +591,36 @@ impl App {
     }
 
     pub fn toggle_help(&mut self) {
-        self.mode = Mode::Projects;
-        self.update_help_shortcuts();
+        self.help_component.toggle();
+        self.help_component.set_shortcuts(self.help_shortcuts.clone(), self.help_title.clone());
     }
 
     pub fn close_help(&mut self) {
-        self.mode = Mode::Projects;
+        self.help_component.close();
     }
 
     fn update_help_shortcuts(&mut self) {
         self.help_shortcuts = match self.mode {
             Mode::Projects => vec![
+                ("j/k".to_string(), "Navigate projects".to_string()),
+                ("Enter".to_string(), "Open project tasks".to_string()),
                 ("n".to_string(), "New project".to_string()),
-                ("j/k".to_string(), "Navigate".to_string()),
-                ("Enter".to_string(), "Open tasks".to_string()),
-                ("?".to_string(), "Help".to_string()),
+                ("e".to_string(), "Edit project".to_string()),
+                ("d".to_string(), "Delete project".to_string()),
+                ("?".to_string(), "Show help".to_string()),
                 ("q".to_string(), "Quit".to_string()),
             ],
             Mode::Tasks => vec![
-                ("n".to_string(), "New task".to_string()),
                 ("h/l".to_string(), "Switch column".to_string()),
-                ("j/k".to_string(), "Navigate".to_string()),
-                ("Space".to_string(), "Move status".to_string()),
-                ("Enter".to_string(), "Details".to_string()),
-                ("Esc".to_string(), "Back".to_string()),
-                ("?".to_string(), "Help".to_string()),
+                ("j/k".to_string(), "Navigate tasks".to_string()),
+                ("Space".to_string(), "Move task to next status".to_string()),
+                ("n".to_string(), "New task".to_string()),
+                ("e".to_string(), "Edit task".to_string()),
+                ("d".to_string(), "Delete task".to_string()),
+                ("Enter".to_string(), "Task details".to_string()),
+                ("Esc".to_string(), "Back to projects".to_string()),
+                ("?".to_string(), "Show help".to_string()),
+                ("q".to_string(), "Quit".to_string()),
             ],
             _ => vec![
                 ("j/k".to_string(), "Navigate".to_string()),

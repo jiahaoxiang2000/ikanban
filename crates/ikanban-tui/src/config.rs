@@ -116,6 +116,18 @@ impl Config {
                     parse_key_sequence("<Enter>").map_err(|e| config::ConfigError::Message(e))?,
                     Action::EnterTasksView,
                 ),
+                (
+                    parse_key_sequence("n").map_err(|e| config::ConfigError::Message(e))?,
+                    Action::StartInputForNew(crate::action::InputField::ProjectName),
+                ),
+                (
+                    parse_key_sequence("e").map_err(|e| config::ConfigError::Message(e))?,
+                    Action::StartInputForEdit(crate::action::InputField::ProjectName),
+                ),
+                (
+                    parse_key_sequence("d").map_err(|e| config::ConfigError::Message(e))?,
+                    Action::DeleteSelectedProject,
+                ),
             ]);
 
             // Tasks mode bindings
@@ -140,6 +152,22 @@ impl Config {
                 (
                     parse_key_sequence("<Esc>").map_err(|e| config::ConfigError::Message(e))?,
                     Action::EnterProjectsView,
+                ),
+                (
+                    parse_key_sequence("n").map_err(|e| config::ConfigError::Message(e))?,
+                    Action::StartInputForNew(crate::action::InputField::TaskTitle),
+                ),
+                (
+                    parse_key_sequence("e").map_err(|e| config::ConfigError::Message(e))?,
+                    Action::StartInputForEdit(crate::action::InputField::TaskTitle),
+                ),
+                (
+                    parse_key_sequence("d").map_err(|e| config::ConfigError::Message(e))?,
+                    Action::DeleteSelectedTask,
+                ),
+                (
+                    parse_key_sequence("<Space>").map_err(|e| config::ConfigError::Message(e))?,
+                    Action::MoveTaskToNextStatus,
                 ),
             ]);
 

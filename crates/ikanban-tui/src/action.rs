@@ -39,6 +39,8 @@ pub enum Action {
 
     // Input mode
     StartInput(InputField),
+    StartInputForNew(InputField),
+    StartInputForEdit(InputField),
     CancelInput,
     SubmitInput,
     InsertChar(char),
