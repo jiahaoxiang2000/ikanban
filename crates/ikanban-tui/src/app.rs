@@ -24,8 +24,16 @@ pub enum Mode {
     ExecutionLogs,
 }
 
-/// Application state
+/// Application state - The main orchestrator for the TUI
+/// 
+/// Responsibilities:
+/// - Manages global application state (projects, tasks, current view)
+/// - Coordinates between components (Projects, Tasks, Input, Help)
+/// - Handles WebSocket communication for real-time updates
+/// - Routes actions from components to appropriate handlers
+/// - Manages view switching and data loading
 pub struct App {
+    // ===== Core TUI State =====
     config: Config,
     tick_rate: f64,
     frame_rate: f64,
@@ -36,13 +44,14 @@ pub struct App {
     action_tx: mpsc::UnboundedSender<Action>,
     action_rx: mpsc::UnboundedReceiver<Action>,
 
-    // Component references for direct access
+    // ===== UI Components =====
+    // Each component manages its own rendering and local state
     projects_component: Projects,
     tasks_component: Tasks,
     input_component: Input,
     help_component: Help,
 
-    // iKanban specific state
+    // ===== Application Data =====
     pub ws_client: WsClient,
     pub projects: Vec<Project>,
     pub tasks: Vec<Task>,
@@ -55,7 +64,7 @@ pub struct App {
     pub current_project_id: Option<uuid::Uuid>,
     pub is_editing: bool, // Track if we're editing (true) or creating (false)
 
-    // WebSocket state
+    // ===== WebSocket State =====
     ws_event_rx: Option<mpsc::UnboundedReceiver<WsEvent>>,
     current_session_id: Option<uuid::Uuid>,
     executions: Vec<crate::models::ExecutionProcess>,
@@ -175,11 +184,15 @@ impl App {
         Ok(())
     }
 
+    /// Handle terminal events and convert them to actions
+    /// Events are broadcast to all components, which may emit actions in response
     async fn handle_events(&mut self, tui: &mut Tui) -> color_eyre::Result<()> {
         let Some(event) = tui.next_event().await else {
             return Ok(());
         };
         let action_tx = self.action_tx.clone();
+        
+        // Convert terminal events to actions
         match event {
             Event::Quit => action_tx.send(Action::Quit)?,
             Event::Tick => action_tx.send(Action::Tick)?,
@@ -189,7 +202,8 @@ impl App {
             _ => {}
         }
 
-        // Handle events for all components
+        // Broadcast event to all components
+        // Components may emit actions in response to events
         if let Some(action) = self.projects_component.handle_events(Some(event.clone()))? {
             action_tx.send(action)?;
         }
@@ -206,10 +220,13 @@ impl App {
         Ok(())
     }
 
+    /// Handle keyboard input and convert to actions
+    /// Special handling for input modal (intercepts all keys when visible)
     fn handle_key_event(&mut self, key: KeyEvent) -> color_eyre::Result<()> {
         let action_tx = self.action_tx.clone();
 
-        // If input modal is visible, handle input-specific keys
+        // ===== Input Modal Key Handling =====
+        // When input modal is visible, intercept all keys for text editing
         if self.input_component.is_visible() {
             use crossterm::event::KeyCode;
             match key.code {
@@ -261,7 +278,8 @@ impl App {
             }
         }
 
-        // Normal mode keybindings
+        // ===== Normal Mode Key Handling =====
+        // Look up keybinding for current mode
         let Some(keymap) = self.config.keybindings.0.get(&self.mode) else {
             return Ok(());
         };
@@ -288,6 +306,7 @@ impl App {
             }
 
             match action {
+                // ===== Terminal Actions =====
                 Action::Tick => {
                     self.last_tick_key_events.drain(..);
                 }
@@ -297,10 +316,39 @@ impl App {
                 Action::ClearScreen => tui.terminal.clear()?,
                 Action::Resize(w, h) => self.handle_resize(tui, w, h)?,
                 Action::Render => self.render(tui)?,
+                
+                // ===== Modal Actions =====
                 Action::Help => self.toggle_help(),
                 Action::CloseHelpModal => self.close_help(),
 
-                // Navigation actions
+                // ===== View Switching Actions =====
+                Action::EnterTasksView => {
+                    // Switch from Projects view to Tasks view
+                    if self.mode == Mode::Projects {
+                        if let Some(project) = self.projects_component.selected_project() {
+                            let project_id = project.id;
+                            self.mode = Mode::Tasks;
+                            self.update_help_shortcuts();
+                            
+                            // Load tasks for the selected project
+                            if let Err(e) = self.load_tasks(project_id).await {
+                                self.set_status(&format!("Failed to load tasks: {}", e));
+                            } else {
+                                self.connect_tasks_ws(project_id).await;
+                            }
+                        }
+                    }
+                }
+                Action::EnterProjectsView => {
+                    // Switch from Tasks view back to Projects view
+                    if self.mode == Mode::Tasks {
+                        self.mode = Mode::Projects;
+                        self.update_help_shortcuts();
+                        self.disconnect_tasks_ws().await;
+                    }
+                }
+
+                // ===== Navigation Actions =====
                 Action::NextProject => {
                     if self.mode == Mode::Projects {
                         self.projects_component.next();
@@ -316,7 +364,9 @@ impl App {
 
                 _ => {}
             }
-            // Update only the active component based on mode
+            
+            // ===== Component Updates =====
+            // Update the active component based on current mode
             match self.mode {
                 Mode::Projects => {
                     if let Some(action) = self.projects_component.update(action.clone())? {
@@ -330,7 +380,8 @@ impl App {
                 }
                 _ => {}
             }
-            // Always update modals
+            
+            // Always update modal components (they overlay any view)
             if let Some(action) = self.input_component.update(action.clone())? {
                 self.action_tx.send(action)?;
             }
@@ -350,7 +401,9 @@ impl App {
     fn render(&mut self, tui: &mut Tui) -> color_eyre::Result<()> {
         tui.draw(|frame| {
             let area = frame.area();
-            // Draw only the component for the current mode
+            
+            // ===== Draw Main View =====
+            // Render the component corresponding to the current mode
             match self.mode {
                 Mode::Projects => {
                     if let Err(err) = self.projects_component.draw(frame, area) {
@@ -370,7 +423,9 @@ impl App {
                     // TODO: Implement these views
                 }
             }
-            // Always draw modals on top if visible
+            
+            // ===== Draw Modal Overlays =====
+            // Modals are always drawn on top if visible
             if let Err(err) = self.input_component.draw(frame, area) {
                 let _ = self
                     .action_tx
@@ -385,21 +440,26 @@ impl App {
         Ok(())
     }
 
-    // iKanban specific methods
+    // ===== UI Helper Methods =====
+    
+    /// Set status message (displayed in status bar)
     pub fn set_status(&mut self, message: &str) {
         self.status_message = Some(message.to_string());
     }
 
+    /// Toggle help modal visibility
     pub fn toggle_help(&mut self) {
         self.help_component.toggle();
         self.help_component
             .set_shortcuts(self.help_shortcuts.clone(), self.help_title.clone());
     }
 
+    /// Close help modal
     pub fn close_help(&mut self) {
         self.help_component.close();
     }
 
+    /// Update help shortcuts based on current mode
     fn update_help_shortcuts(&mut self) {
         self.help_shortcuts = match self.mode {
             Mode::Projects => vec![
@@ -439,6 +499,9 @@ impl App {
         .to_string();
     }
 
+    // ===== Data Loading Methods =====
+    
+    /// Load projects from API and update Projects component
     pub async fn load_projects(&mut self) -> anyhow::Result<()> {
         self.projects = self.ws_client.list_projects().await?;
         if self.selected_project_index >= self.projects.len() {
@@ -449,6 +512,7 @@ impl App {
         Ok(())
     }
 
+    /// Load tasks for a specific project and update Tasks component
     pub async fn load_tasks(&mut self, project_id: uuid::Uuid) -> anyhow::Result<()> {
         self.tasks = self.ws_client.list_tasks(project_id).await?;
         self.selected_task_index = 0;
@@ -457,6 +521,10 @@ impl App {
         Ok(())
     }
 
+    // ===== WebSocket Management Methods =====
+    
+    /// Subscribe to task updates for a specific project
+    /// Automatically unsubscribes from previous project if any
     pub async fn connect_tasks_ws(&mut self, project_id: uuid::Uuid) {
         // Unsubscribe from previous project's tasks if any
         if let Some(old_project_id) = self.current_project_id {
@@ -481,6 +549,7 @@ impl App {
         }
     }
 
+    /// Unsubscribe from task updates for current project
     pub async fn disconnect_tasks_ws(&mut self) {
         if let Some(project_id) = self.current_project_id {
             let _ = self
@@ -491,6 +560,8 @@ impl App {
         self.current_project_id = None;
     }
 
+    /// Process all pending WebSocket events
+    /// Called in main loop to handle real-time updates
     pub async fn process_ws_events(&mut self) -> color_eyre::Result<()> {
         if let Some(ref mut rx) = self.ws_event_rx {
             let mut events = Vec::new();
@@ -504,6 +575,8 @@ impl App {
         Ok(())
     }
 
+    /// Handle a single WebSocket event
+    /// Updates local state and pushes changes to components
     pub async fn handle_ws_event(&mut self, event: WsEvent) {
         match event {
             WsEvent::ProjectCreated(project) => {
