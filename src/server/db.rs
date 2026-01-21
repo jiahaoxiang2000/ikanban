@@ -327,6 +327,18 @@ impl SessionStatus {
             _ => None,
         }
     }
+
+    pub fn can_transition_to(&self, target: Self) -> bool {
+        use SessionStatus::*;
+        matches!(
+            (self, target),
+            (Pending, Running)
+                | (Pending, Cancelled)
+                | (Running, Completed)
+                | (Running, Failed)
+                | (Running, Cancelled)
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -338,6 +350,12 @@ pub struct Session {
     pub status: String,
     pub created_at: String,
     pub ended_at: Option<String>,
+}
+
+impl Session {
+    pub fn status_enum(&self) -> SessionStatus {
+        SessionStatus::from_str(&self.status).unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -481,6 +499,12 @@ pub struct ExecutionProcess {
     pub status: String,
     pub started_at: Option<String>,
     pub ended_at: Option<String>,
+}
+
+impl ExecutionProcess {
+    pub fn status_enum(&self) -> ExecutionStatus {
+        ExecutionStatus::from_str(&self.status).unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
