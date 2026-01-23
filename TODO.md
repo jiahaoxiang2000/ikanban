@@ -132,8 +132,8 @@ pub struct ExecutionEnv {
 
 | Task                                            | Status | Deps | Parallel Group |
 | ----------------------------------------------- | ------ | ---- | -------------- |
-| 2.4 executor/msg_store.rs - MsgStore            | [ ]    | 2.3  | B              |
-| 2.5 executor/opencode/types.rs - Event types    | [ ]    | 2.3  | B              |
+| 2.4 executor/msg_store.rs - MsgStore            | [x]    | 2.3  | B              |
+| 2.5 executor/opencode/types.rs - Event types    | [x]    | 2.3  | B              |
 | 2.6 executor/opencode/sdk.rs - HTTP/SSE client  | [ ]    | 2.4  | -              |
 | 2.7 executor/opencode.rs - OpenCodeExecutor     | [ ]    | 2.6  | -              |
 | 2.8 executor/opencode/normalize.rs - Log parser | [ ]    | 2.5  | B              |

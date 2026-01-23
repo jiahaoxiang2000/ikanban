@@ -2,7 +2,6 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
 /// Environment configuration for executor
@@ -71,67 +70,8 @@ pub trait Executor: Send + Sync {
     fn executor_type(&self) -> &str;
 }
 
-/// Message store for collecting executor logs
-pub mod msg_store {
-    use super::*;
-    use serde::{Deserialize, Serialize};
-    use std::sync::RwLock;
-    use tokio::sync::broadcast;
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub enum LogMsg {
-        Stdout(String),
-        Stderr(String),
-        Event(String),
-        SessionId(String),
-        Finished,
-    }
-
-    pub struct MsgStore {
-        messages: RwLock<Vec<LogMsg>>,
-        notify: broadcast::Sender<LogMsg>,
-    }
-
-    impl MsgStore {
-        pub fn new() -> Arc<Self> {
-            let (notify, _) = broadcast::channel(1024);
-            Arc::new(Self {
-                messages: RwLock::new(Vec::new()),
-                notify,
-            })
-        }
-
-        pub fn push(&self, msg: LogMsg) {
-            if let Ok(mut messages) = self.messages.write() {
-                messages.push(msg.clone());
-            }
-            let _ = self.notify.send(msg);
-        }
-
-        pub fn get_all(&self) -> Vec<LogMsg> {
-            self.messages.read().unwrap().clone()
-        }
-
-        pub fn subscribe(&self) -> broadcast::Receiver<LogMsg> {
-            self.notify.subscribe()
-        }
-
-        pub fn clear(&self) {
-            if let Ok(mut messages) = self.messages.write() {
-                messages.clear();
-            }
-        }
-    }
-
-    impl Default for MsgStore {
-        fn default() -> Self {
-            let (notify, _) = broadcast::channel(1024);
-            Self {
-                messages: RwLock::new(Vec::new()),
-                notify,
-            }
-        }
-    }
-}
+// Module exports
+pub mod msg_store;
+pub mod opencode;
 
 pub use msg_store::{LogMsg, MsgStore};
