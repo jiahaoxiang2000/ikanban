@@ -91,6 +91,27 @@ impl AppState {
         Ok(projects)
     }
 
+    pub async fn update_project(
+        &self,
+        project_id: &str,
+        name: String,
+        path: PathBuf,
+    ) -> Result<Project> {
+        sqlx::query(
+            r#"
+            UPDATE projects SET name = ?, path = ? WHERE id = ?
+            "#,
+        )
+        .bind(&name)
+        .bind(path.to_string_lossy().to_string())
+        .bind(project_id)
+        .execute(&self.pool)
+        .await
+        .context("Failed to update project")?;
+
+        self.get_project(project_id).await
+    }
+
     pub async fn delete_project(&self, project_id: &str) -> Result<()> {
         sqlx::query(
             r#"
@@ -185,6 +206,29 @@ impl AppState {
         .context("Failed to update task status")?;
 
         Ok(())
+    }
+
+    pub async fn update_task(
+        &self,
+        task_id: &str,
+        title: String,
+        description: Option<String>,
+        status: TaskStatus,
+    ) -> Result<Task> {
+        sqlx::query(
+            r#"
+            UPDATE tasks SET title = ?, description = ?, status = ? WHERE id = ?
+            "#,
+        )
+        .bind(&title)
+        .bind(&description)
+        .bind(status.to_string())
+        .bind(task_id)
+        .execute(&self.pool)
+        .await
+        .context("Failed to update task")?;
+
+        self.get_task(task_id).await
     }
 
     pub async fn delete_task(&self, task_id: &str) -> Result<()> {
