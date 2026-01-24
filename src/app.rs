@@ -3,40 +3,23 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-#[cfg(feature = "server")]
 use crate::db::connection::create_pool;
-#[cfg(feature = "server")]
-use crate::db::models::{LogType, Project, Session, Task, TaskStatus};
-#[cfg(feature = "server")]
+use crate::db::models::{LogEntry, LogType, Project, Session, Task, TaskStatus};
 use crate::executor::{Executor, LogMsg, OpenCodeExecutor};
-#[cfg(feature = "server")]
 use crate::session::SessionManager;
-#[cfg(feature = "server")]
 use chrono::Utc;
-#[cfg(feature = "server")]
 use sqlx::SqlitePool;
-#[cfg(feature = "server")]
 use uuid::Uuid;
-
-#[cfg(all(feature = "ui", not(feature = "server")))]
-use crate::db::models::{Project, Session, Task, TaskStatus};
-#[cfg(feature = "ui")]
-use crate::db::models::LogEntry;
-#[cfg(feature = "ui")]
 use crate::ui::{Board, SessionPanel};
-#[cfg(feature = "ui")]
 use eframe;
-#[cfg(feature = "ui")]
 use egui;
 
-#[cfg(feature = "server")]
 pub struct AppState {
     pool: SqlitePool,
     session_manager: Arc<SessionManager>,
     executor: Arc<dyn Executor>,
 }
 
-#[cfg(feature = "server")]
 impl AppState {
     pub async fn new(db_path: PathBuf) -> Result<Self> {
         let pool = create_pool(&db_path)
@@ -302,7 +285,6 @@ impl AppState {
     }
 }
 
-#[cfg(feature = "ui")]
 pub struct KanbanApp {
     board: Board,
     session_panel: SessionPanel,
@@ -312,7 +294,6 @@ pub struct KanbanApp {
     selected_project: Arc<RwLock<Option<String>>>,
 }
 
-#[cfg(feature = "ui")]
 impl KanbanApp {
     pub fn new() -> Self {
         Self {
@@ -369,14 +350,12 @@ impl KanbanApp {
     }
 }
 
-#[cfg(feature = "ui")]
 impl Default for KanbanApp {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(feature = "ui")]
 impl eframe::App for KanbanApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.show(ctx);
@@ -389,7 +368,6 @@ impl eframe::App for KanbanApp {
 mod tests {
     use super::*;
 
-    #[cfg(feature = "server")]
     #[tokio::test]
     async fn test_app_state_creation() {
         use tempfile::TempDir;
@@ -402,7 +380,6 @@ mod tests {
         assert!(projects.is_empty());
     }
 
-    #[cfg(feature = "server")]
     #[tokio::test]
     async fn test_project_crud() {
         use tempfile::TempDir;
@@ -429,7 +406,6 @@ mod tests {
         assert!(projects.is_empty());
     }
 
-    #[cfg(feature = "server")]
     #[tokio::test]
     async fn test_task_crud() {
         use tempfile::TempDir;
@@ -474,7 +450,6 @@ mod tests {
         assert!(tasks.is_empty());
     }
 
-    #[cfg(feature = "ui")]
     #[test]
     fn test_kanban_app_creation() {
         let app = KanbanApp::new();

@@ -9,7 +9,6 @@ crate-type = ["rlib"]
 [[bin]]
 name = "ikanban"
 path = "src/main.rs"
-required-features = ["ui"]
 
 [dependencies]
 # Serialization
@@ -26,57 +25,35 @@ chrono = { version = "0.4", features = ["serde"] }
 # UUID generation
 uuid = { version = "1.0", features = ["v4", "serde"] }
 
-# SSR-only dependencies
-axum = { version = "0.8", optional = true }
-tokio = { version = "1.43", features = ["full"], optional = true }
-tower = { version = "0.5", optional = true }
+# Server dependencies
+axum = "0.8"
+tokio = { version = "1.43", features = ["full"] }
+tower = "0.5"
 tower-http = { version = "0.6", features = [
     "fs",
     "cors",
     "compression-gzip",
-], optional = true }
+] }
 sqlx = { version = "0.8", features = [
     "runtime-tokio",
     "sqlite",
     "chrono",
     "uuid",
-], optional = true }
-tracing = { version = "0.1", optional = true }
+] }
+tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = [
     "env-filter",
-], optional = true }
-agent-client-protocol = { version = "0.9", optional = true }
-dirs = { version = "5.0", optional = true }
-async-trait = { version = "0.1", optional = true }
-reqwest = { version = "0.12", features = ["json", "stream"], optional = true }
-eventsource-stream = { version = "0.2", optional = true }
-futures = { version = "0.3", optional = true }
+] }
+agent-client-protocol = "0.9"
+dirs = "5.0"
+async-trait = "0.1"
+reqwest = { version = "0.12", features = ["json", "stream"] }
+eventsource-stream = "0.2"
+futures = "0.3"
 
 # UI dependencies
-egui = { version = "0.29", optional = true }
-eframe = { version = "0.29", optional = true }
-
-[features]
-default = ["server"]
-server = [
-    "dep:axum",
-    "dep:tokio",
-    "dep:tower",
-    "dep:tower-http",
-    "dep:sqlx",
-    "dep:tracing",
-    "dep:tracing-subscriber",
-    "dep:agent-client-protocol",
-    "dep:dirs",
-    "dep:async-trait",
-    "dep:reqwest",
-    "dep:eventsource-stream",
-    "dep:futures",
-]
-ui = [
-    "dep:egui",
-    "dep:eframe",
-]
+egui = "0.29"
+eframe = "0.29"
 
 [profile.release]
 lto = true

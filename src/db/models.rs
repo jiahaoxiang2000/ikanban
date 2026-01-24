@@ -10,7 +10,6 @@ pub struct Project {
     pub created_at: DateTime<Utc>,
 }
 
-#[cfg(feature = "server")]
 impl sqlx::FromRow<'_, sqlx::sqlite::SqliteRow> for Project {
     fn from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
         use sqlx::Row;
@@ -23,9 +22,8 @@ impl sqlx::FromRow<'_, sqlx::sqlite::SqliteRow> for Project {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "server", derive(sqlx::Type))]
-#[cfg_attr(feature = "server", sqlx(type_name = "TEXT"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "TEXT")]
 pub enum TaskStatus {
     Todo,
     InProgress,
@@ -68,12 +66,16 @@ pub struct Task {
     pub created_at: DateTime<Utc>,
 }
 
-#[cfg(feature = "server")]
 impl sqlx::FromRow<'_, sqlx::sqlite::SqliteRow> for Task {
     fn from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
         use sqlx::Row;
         let status_str: String = row.try_get("status")?;
-        let status = status_str.parse().map_err(|e| sqlx::Error::Decode(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e))))?;
+        let status = status_str.parse().map_err(|e| {
+            sqlx::Error::Decode(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                e,
+            )))
+        })?;
 
         Ok(Task {
             id: row.try_get("id")?,
@@ -86,9 +88,8 @@ impl sqlx::FromRow<'_, sqlx::sqlite::SqliteRow> for Task {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "server", derive(sqlx::Type))]
-#[cfg_attr(feature = "server", sqlx(type_name = "TEXT"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "TEXT")]
 pub enum SessionStatus {
     Running,
     Completed,
@@ -141,12 +142,16 @@ pub struct Session {
     pub finished_at: Option<DateTime<Utc>>,
 }
 
-#[cfg(feature = "server")]
 impl sqlx::FromRow<'_, sqlx::sqlite::SqliteRow> for Session {
     fn from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
         use sqlx::Row;
         let status_str: String = row.try_get("status")?;
-        let status = status_str.parse().map_err(|e| sqlx::Error::Decode(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e))))?;
+        let status = status_str.parse().map_err(|e| {
+            sqlx::Error::Decode(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                e,
+            )))
+        })?;
 
         let worktree_path: Option<String> = row.try_get("worktree_path")?;
 
@@ -165,9 +170,8 @@ impl sqlx::FromRow<'_, sqlx::sqlite::SqliteRow> for Session {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "server", derive(sqlx::Type))]
-#[cfg_attr(feature = "server", sqlx(type_name = "TEXT"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "TEXT")]
 pub enum LogType {
     Stdout,
     Stderr,
@@ -206,12 +210,16 @@ pub struct LogEntry {
     pub content: String,
 }
 
-#[cfg(feature = "server")]
 impl sqlx::FromRow<'_, sqlx::sqlite::SqliteRow> for LogEntry {
     fn from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
         use sqlx::Row;
         let log_type_str: String = row.try_get("log_type")?;
-        let log_type = log_type_str.parse().map_err(|e| sqlx::Error::Decode(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e))))?;
+        let log_type = log_type_str.parse().map_err(|e| {
+            sqlx::Error::Decode(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                e,
+            )))
+        })?;
 
         Ok(LogEntry {
             id: row.try_get("id")?,
@@ -222,4 +230,3 @@ impl sqlx::FromRow<'_, sqlx::sqlite::SqliteRow> for LogEntry {
         })
     }
 }
-
