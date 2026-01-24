@@ -342,6 +342,7 @@ pub struct KanbanApp {
     selected_project: Arc<RwLock<Option<String>>>,
     selected_task: Arc<RwLock<Option<String>>>,
     keyboard_state: KeyboardState,
+    app_state: Arc<AppState>,
     show_create_project_dialog: bool,
     show_create_task_dialog: bool,
     show_edit_task_dialog: bool,
@@ -353,8 +354,8 @@ pub struct KanbanApp {
 }
 
 impl KanbanApp {
-    pub fn new() -> Self {
-        Self {
+    pub fn new(app_state: Arc<AppState>) -> Self {
+        let app = Self {
             project_view: ProjectView::new(),
             task_view: TaskView::new(),
             session_view: SessionView::new(),
@@ -366,6 +367,7 @@ impl KanbanApp {
             selected_project: Arc::new(RwLock::new(None)),
             selected_task: Arc::new(RwLock::new(None)),
             keyboard_state: KeyboardState::new(),
+            app_state: app_state.clone(),
             show_create_project_dialog: false,
             show_create_task_dialog: false,
             show_edit_task_dialog: false,
@@ -374,7 +376,18 @@ impl KanbanApp {
             project_path_input: String::new(),
             task_title_input: String::new(),
             task_description_input: String::new(),
-        }
+        };
+
+        // Load initial data
+        let projects = app.projects.clone();
+        let state = app.app_state.clone();
+        tokio::spawn(async move {
+            if let Ok(p) = state.list_projects().await {
+                *projects.write().await = p;
+            }
+        });
+
+        app
     }
 
     pub async fn set_tasks(&self, tasks: Vec<Task>) {
@@ -637,14 +650,19 @@ impl KanbanApp {
             return;
         }
 
-        let project = Project {
-            id: Uuid::new_v4().to_string(),
-            name,
-            path,
-            created_at: Utc::now(),
-        };
+        let app_state = self.app_state.clone();
+        let projects = self.projects.clone();
 
-        self.projects.blocking_write().push(project);
+        tokio::spawn(async move {
+            match app_state.create_project(name, path).await {
+                Ok(project) => {
+                    projects.write().await.push(project);
+                }
+                Err(e) => {
+                    eprintln!("Failed to create project: {}", e);
+                }
+            }
+        });
     }
 
     fn create_task_internal(&mut self) {
@@ -654,18 +672,27 @@ impl KanbanApp {
             return;
         }
 
-        let project_id = self.selected_project.blocking_read().clone();
-        if let Some(project_id) = project_id {
-            let task = Task {
-                id: Uuid::new_v4().to_string(),
-                project_id,
-                title,
-                description: if description.is_empty() { None } else { Some(description) },
-                status: TaskStatus::Todo,
-                created_at: Utc::now(),
-            };
-            self.tasks.blocking_write().push(task);
-        }
+        let project_id_guard = self.selected_project.blocking_read();
+        let project_id = match project_id_guard.clone() {
+            Some(id) => id,
+            None => return,
+        };
+        drop(project_id_guard);
+
+        let app_state = self.app_state.clone();
+        let tasks = self.tasks.clone();
+        let description = if description.is_empty() { None } else { Some(description) };
+
+        tokio::spawn(async move {
+            match app_state.create_task(project_id, title, description).await {
+                Ok(task) => {
+                    tasks.write().await.push(task);
+                }
+                Err(e) => {
+                    eprintln!("Failed to create task: {}", e);
+                }
+            }
+        });
     }
 
     fn update_task_internal(&mut self) {
@@ -676,15 +703,28 @@ impl KanbanApp {
         }
 
         let tasks_guard = self.tasks.blocking_read();
-        let selected_task_id = self.task_view.get_selected_task(&tasks_guard, &self.keyboard_state).map(|t| t.id.clone());
+        let selected_task = self.task_view.get_selected_task(&tasks_guard, &self.keyboard_state).cloned();
         drop(tasks_guard);
 
-        if let Some(task_id) = selected_task_id {
-            let mut tasks = self.tasks.blocking_write();
-            if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
-                task.title = title;
-                task.description = if description.is_empty() { None } else { Some(description) };
-            }
+        if let Some(task) = selected_task {
+            let app_state = self.app_state.clone();
+            let tasks = self.tasks.clone();
+            let description = if description.is_empty() { None } else { Some(description) };
+            let status = task.status;
+
+            tokio::spawn(async move {
+                match app_state.update_task(&task.id, title, description, status).await {
+                    Ok(updated_task) => {
+                        let mut tasks_write = tasks.write().await;
+                        if let Some(t) = tasks_write.iter_mut().find(|t| t.id == updated_task.id) {
+                            *t = updated_task;
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to update task: {}", e);
+                    }
+                }
+            });
         }
     }
 
@@ -926,7 +966,7 @@ impl KanbanApp {
 
 impl Default for KanbanApp {
     fn default() -> Self {
-        Self::new()
+        panic!("KanbanApp::default() is not supported. Use KanbanApp::new(app_state) instead.");
     }
 }
 
