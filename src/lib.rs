@@ -11,3 +11,5 @@ pub mod session;
 
 #[cfg(feature = "ui")]
 pub mod ui;
+
+pub mod app;
