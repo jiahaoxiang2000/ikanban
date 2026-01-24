@@ -342,6 +342,12 @@ pub struct KanbanApp {
     selected_project: Arc<RwLock<Option<String>>>,
     selected_task: Arc<RwLock<Option<String>>>,
     keyboard_state: KeyboardState,
+    show_create_project_dialog: bool,
+    show_create_task_dialog: bool,
+    project_name_input: String,
+    project_path_input: String,
+    task_title_input: String,
+    task_description_input: String,
 }
 
 impl KanbanApp {
@@ -358,6 +364,12 @@ impl KanbanApp {
             selected_project: Arc::new(RwLock::new(None)),
             selected_task: Arc::new(RwLock::new(None)),
             keyboard_state: KeyboardState::new(),
+            show_create_project_dialog: false,
+            show_create_task_dialog: false,
+            project_name_input: String::new(),
+            project_path_input: String::new(),
+            task_title_input: String::new(),
+            task_description_input: String::new(),
         }
     }
 
@@ -471,6 +483,9 @@ impl KanbanApp {
                 }
             }
         });
+
+        self.show_create_project_dialog(ctx);
+        self.show_create_task_dialog(ctx);
     }
 
     fn show_project_view(&mut self, ui: &mut egui::Ui) {
@@ -517,6 +532,78 @@ impl KanbanApp {
             &logs,
             &self.keyboard_state,
         );
+    }
+
+    fn show_create_project_dialog(&mut self, ctx: &egui::Context) {
+        if !self.show_create_project_dialog {
+            return;
+        }
+
+        egui::Window::new("Create New Project")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.vertical(|ui| {
+                    ui.label("Project Name:");
+                    ui.text_edit_singleline(&mut self.project_name_input);
+                    
+                    ui.add_space(10.0);
+                    
+                    ui.label("Project Path:");
+                    ui.text_edit_singleline(&mut self.project_path_input);
+                    
+                    ui.add_space(15.0);
+                    
+                    ui.horizontal(|ui| {
+                        if ui.button("Create").clicked() {
+                            self.show_create_project_dialog = false;
+                        }
+                        
+                        if ui.button("Cancel").clicked() {
+                            self.show_create_project_dialog = false;
+                            self.project_name_input.clear();
+                            self.project_path_input.clear();
+                        }
+                    });
+                });
+            });
+    }
+
+    fn show_create_task_dialog(&mut self, ctx: &egui::Context) {
+        if !self.show_create_task_dialog {
+            return;
+        }
+
+        egui::Window::new("Create New Task")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.vertical(|ui| {
+                    ui.label("Task Title:");
+                    ui.text_edit_singleline(&mut self.task_title_input);
+                    
+                    ui.add_space(10.0);
+                    
+                    ui.label("Description (optional):");
+                    ui.text_edit_multiline(&mut self.task_description_input);
+                    
+                    ui.add_space(15.0);
+                    
+                    ui.horizontal(|ui| {
+                        if ui.button("Create").clicked() {
+                            self.show_create_task_dialog = false;
+                        }
+                        
+                        if ui.button("Cancel").clicked() {
+                            self.show_create_task_dialog = false;
+                            self.task_title_input.clear();
+                            self.task_description_input.clear();
+                        }
+                    });
+                });
+            });
     }
 
     fn handle_keyboard_input(&mut self, ctx: &egui::Context) {
@@ -578,6 +665,12 @@ impl KanbanApp {
             }
             Action::Quit => {
                 std::process::exit(0);
+            }
+            Action::CreateProject => {
+                self.show_create_project_dialog = true;
+            }
+            Action::CreateTask => {
+                self.show_create_task_dialog = true;
             }
             _ => {}
         }

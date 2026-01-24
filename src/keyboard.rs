@@ -29,6 +29,7 @@ pub enum Action {
     MoveSelection(Direction),
     MoveTask(Direction),
     SelectTask,
+    CreateProject,
     CreateTask,
     DeleteTask,
     EditTask,
@@ -128,7 +129,11 @@ impl KeyboardState {
             Key::Colon => Action::ToggleMode(Mode::Command),
 
             Key::Enter => Action::DrillDown,
-            Key::N => Action::CreateTask,
+            Key::N => match self.view_level {
+                ViewLevel::Project => Action::CreateProject,
+                ViewLevel::Task => Action::CreateTask,
+                ViewLevel::Session => Action::None,
+            },
             Key::E => Action::EditTask,
             Key::S => Action::StartSession,
             Key::X => Action::StopSession,
