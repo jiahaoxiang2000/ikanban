@@ -16,6 +16,13 @@ pub enum Direction {
     Down,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewLevel {
+    Project,
+    Task,
+    Session,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     None,
@@ -33,12 +40,17 @@ pub enum Action {
     JumpToColumn(usize),
     Search,
     Quit,
+    DrillDown,
+    GoBack,
 }
 
 pub struct KeyboardState {
     pub mode: Mode,
+    pub view_level: ViewLevel,
     pub selected_column: usize,
     pub selected_row: usize,
+    pub selected_project_index: usize,
+    pub selected_session_index: usize,
     pub pending_key: Option<Key>,
     pub command_buffer: String,
     pub last_action: Action,
@@ -48,8 +60,11 @@ impl Default for KeyboardState {
     fn default() -> Self {
         Self {
             mode: Mode::Normal,
+            view_level: ViewLevel::Project,
             selected_column: 0,
             selected_row: 0,
+            selected_project_index: 0,
+            selected_session_index: 0,
             pending_key: None,
             command_buffer: String::new(),
             last_action: Action::None,
@@ -112,7 +127,7 @@ impl KeyboardState {
             Key::V => Action::ToggleMode(Mode::Visual),
             Key::Colon => Action::ToggleMode(Mode::Command),
 
-            Key::Enter => Action::SelectTask,
+            Key::Enter => Action::DrillDown,
             Key::N => Action::CreateTask,
             Key::E => Action::EditTask,
             Key::S => Action::StartSession,
@@ -146,7 +161,7 @@ impl KeyboardState {
 
     fn handle_insert_mode(&mut self, key: Key) -> Action {
         match key {
-            Key::Escape => Action::ToggleMode(Mode::Normal),
+            Key::Escape => Action::GoBack,
             _ => Action::None,
         }
     }
@@ -255,6 +270,83 @@ impl KeyboardState {
             Mode::Insert => egui::Color32::from_rgb(100, 255, 100),
             Mode::Visual => egui::Color32::from_rgb(255, 150, 100),
             Mode::Command => egui::Color32::from_rgb(255, 255, 100),
+        }
+    }
+
+    pub fn get_view_string(&self) -> &str {
+        match self.view_level {
+            ViewLevel::Project => "PROJECT",
+            ViewLevel::Task => "TASK",
+            ViewLevel::Session => "SESSION",
+        }
+    }
+
+    pub fn drill_down(&mut self) -> bool {
+        match self.view_level {
+            ViewLevel::Project => {
+                self.view_level = ViewLevel::Task;
+                true
+            }
+            ViewLevel::Task => {
+                self.view_level = ViewLevel::Session;
+                true
+            }
+            ViewLevel::Session => false,
+        }
+    }
+
+    pub fn go_back(&mut self) -> bool {
+        if self.mode != Mode::Normal {
+            self.mode = Mode::Normal;
+            self.command_buffer.clear();
+            return true;
+        }
+        match self.view_level {
+            ViewLevel::Project => false,
+            ViewLevel::Task => {
+                self.view_level = ViewLevel::Project;
+                true
+            }
+            ViewLevel::Session => {
+                self.view_level = ViewLevel::Task;
+                true
+            }
+        }
+    }
+
+    pub fn move_project_selection(&mut self, direction: Direction, project_count: usize) {
+        if project_count == 0 {
+            return;
+        }
+        match direction {
+            Direction::Up | Direction::Left => {
+                if self.selected_project_index > 0 {
+                    self.selected_project_index -= 1;
+                }
+            }
+            Direction::Down | Direction::Right => {
+                if self.selected_project_index < project_count.saturating_sub(1) {
+                    self.selected_project_index += 1;
+                }
+            }
+        }
+    }
+
+    pub fn move_session_selection(&mut self, direction: Direction, session_count: usize) {
+        if session_count == 0 {
+            return;
+        }
+        match direction {
+            Direction::Up | Direction::Left => {
+                if self.selected_session_index > 0 {
+                    self.selected_session_index -= 1;
+                }
+            }
+            Direction::Down | Direction::Right => {
+                if self.selected_session_index < session_count.saturating_sub(1) {
+                    self.selected_session_index += 1;
+                }
+            }
         }
     }
 }

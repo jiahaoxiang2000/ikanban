@@ -10,8 +10,8 @@ use crate::session::SessionManager;
 use chrono::Utc;
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use crate::ui::{Board, ProjectPanel, TaskExecutionPanel};
-use crate::keyboard::{KeyboardState, Action, Mode};
+use crate::ui::{ProjectView, SessionView, TaskView};
+use crate::keyboard::{KeyboardState, Action, Direction, Mode, ViewLevel};
 use eframe;
 use egui;
 
@@ -331,11 +331,12 @@ impl AppState {
 }
 
 pub struct KanbanApp {
-    project_panel: ProjectPanel,
-    board: Board,
-    task_execution_panel: TaskExecutionPanel,
+    project_view: ProjectView,
+    task_view: TaskView,
+    session_view: SessionView,
     projects: Arc<RwLock<Vec<Project>>>,
     tasks: Arc<RwLock<Vec<Task>>>,
+    sessions: Arc<RwLock<Vec<Session>>>,
     current_session: Arc<RwLock<Option<Session>>>,
     logs: Arc<RwLock<Vec<LogEntry>>>,
     selected_project: Arc<RwLock<Option<String>>>,
@@ -346,11 +347,12 @@ pub struct KanbanApp {
 impl KanbanApp {
     pub fn new() -> Self {
         Self {
-            project_panel: ProjectPanel::new(),
-            board: Board::new(),
-            task_execution_panel: TaskExecutionPanel::new(),
+            project_view: ProjectView::new(),
+            task_view: TaskView::new(),
+            session_view: SessionView::new(),
             projects: Arc::new(RwLock::new(Vec::new())),
             tasks: Arc::new(RwLock::new(Vec::new())),
+            sessions: Arc::new(RwLock::new(Vec::new())),
             current_session: Arc::new(RwLock::new(None)),
             logs: Arc::new(RwLock::new(Vec::new())),
             selected_project: Arc::new(RwLock::new(None)),
@@ -383,18 +385,53 @@ impl KanbanApp {
         *self.selected_task.write().await = task_id;
     }
 
+    pub async fn set_sessions(&self, sessions: Vec<Session>) {
+        *self.sessions.write().await = sessions;
+    }
+
     pub fn show(&mut self, ctx: &egui::Context) {
         self.handle_keyboard_input(ctx);
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.heading("iKanban - AI-Powered Task Management");
+                ui.heading("iKanban");
+                ui.separator();
+                ui.label(
+                    egui::RichText::new(self.keyboard_state.get_view_string())
+                        .color(egui::Color32::from_rgb(100, 200, 150))
+                        .strong(),
+                );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let mode_color = self.keyboard_state.get_mode_color();
-                    ui.colored_label(mode_color, format!("-- {} --", self.keyboard_state.get_mode_string()));
-                    ui.label(format!("Column: {} Row: {}", 
-                        self.keyboard_state.selected_column + 1, 
-                        self.keyboard_state.selected_row + 1));
+                    ui.colored_label(
+                        mode_color,
+                        format!("-- {} --", self.keyboard_state.get_mode_string()),
+                    );
+                    match self.keyboard_state.view_level {
+                        ViewLevel::Project => {
+                            let projects = self.projects.blocking_read();
+                            ui.label(format!(
+                                "Project: {}/{}",
+                                self.keyboard_state.selected_project_index + 1,
+                                projects.len().max(1)
+                            ));
+                        }
+                        ViewLevel::Task => {
+                            ui.label(format!(
+                                "Col: {} Row: {}",
+                                self.keyboard_state.selected_column + 1,
+                                self.keyboard_state.selected_row + 1
+                            ));
+                        }
+                        ViewLevel::Session => {
+                            let sessions = self.sessions.blocking_read();
+                            ui.label(format!(
+                                "Session: {}/{}",
+                                self.keyboard_state.selected_session_index + 1,
+                                sessions.len().max(1)
+                            ));
+                        }
+                    }
                 });
             });
         });
@@ -405,54 +442,81 @@ impl KanbanApp {
                     ui.label(":");
                     ui.label(&self.keyboard_state.command_buffer);
                 } else {
-                    ui.label("Keyboard shortcuts: h/j/k/l - navigate | n - new task | e - edit | s - start session | dd - delete | gg/G - jump | 1-4 - columns | i - insert | v - visual | : - command | q - quit");
+                    let help_text = match self.keyboard_state.view_level {
+                        ViewLevel::Project => {
+                            "j/k - navigate | Enter - open project | n - new | dd - delete | q - quit"
+                        }
+                        ViewLevel::Task => {
+                            "h/j/k/l - navigate | Enter - open task | n - new | e - edit | dd - delete | 1-4 - columns | Esc - back"
+                        }
+                        ViewLevel::Session => {
+                            "j/k - sessions | s - start | x - stop | Esc - back"
+                        }
+                    };
+                    ui.label(help_text);
                 }
             });
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    ui.set_min_width(250.0);
-                    ui.set_max_width(300.0);
-
-                    let projects = self.projects.blocking_read();
-                    let selected_project = self.selected_project.blocking_read();
-                    if let Some(new_project_id) = self.project_panel.show(ui, &projects, selected_project.as_ref()) {
-                        drop(selected_project);
-                        drop(projects);
-                        *self.selected_project.blocking_write() = Some(new_project_id);
-                    }
-                });
-
-                ui.separator();
-
-                ui.vertical(|ui| {
-                    ui.set_min_width(500.0);
-
-                    let tasks = self.tasks.blocking_read();
-                    if let Some(task_id) = self.board.show(ui, &tasks, &self.keyboard_state) {
-                        drop(tasks);
-                        *self.selected_task.blocking_write() = Some(task_id);
-                    }
-                });
-
-                ui.separator();
-
-                ui.vertical(|ui| {
-                    ui.set_min_width(350.0);
-
-                    let selected_task_id = self.selected_task.blocking_read();
-                    let tasks = self.tasks.blocking_read();
-                    let selected_task = selected_task_id.as_ref()
-                        .and_then(|id| tasks.iter().find(|t| &t.id == id));
-                    
-                    let session = self.current_session.blocking_read();
-                    let logs = self.logs.blocking_read();
-                    self.task_execution_panel.show(ui, selected_task, session.as_ref(), &logs);
-                });
-            });
+            match self.keyboard_state.view_level {
+                ViewLevel::Project => {
+                    self.show_project_view(ui);
+                }
+                ViewLevel::Task => {
+                    self.show_task_view(ui);
+                }
+                ViewLevel::Session => {
+                    self.show_session_view(ui);
+                }
+            }
         });
+    }
+
+    fn show_project_view(&mut self, ui: &mut egui::Ui) {
+        let projects = self.projects.blocking_read();
+        if let Some(project_id) = self.project_view.show(ui, &projects, &self.keyboard_state) {
+            drop(projects);
+            *self.selected_project.blocking_write() = Some(project_id);
+            self.keyboard_state.drill_down();
+        }
+    }
+
+    fn show_task_view(&mut self, ui: &mut egui::Ui) {
+        let projects = self.projects.blocking_read();
+        let selected_project_id = self.selected_project.blocking_read();
+        let project = selected_project_id
+            .as_ref()
+            .and_then(|id| projects.iter().find(|p| &p.id == id));
+
+        let tasks = self.tasks.blocking_read();
+        if let Some(task_id) = self.task_view.show(ui, project, &tasks, &self.keyboard_state) {
+            drop(tasks);
+            drop(projects);
+            drop(selected_project_id);
+            *self.selected_task.blocking_write() = Some(task_id);
+        }
+    }
+
+    fn show_session_view(&mut self, ui: &mut egui::Ui) {
+        let selected_task_id = self.selected_task.blocking_read();
+        let tasks = self.tasks.blocking_read();
+        let task = selected_task_id
+            .as_ref()
+            .and_then(|id| tasks.iter().find(|t| &t.id == id));
+
+        let sessions = self.sessions.blocking_read();
+        let current_session = self.current_session.blocking_read();
+        let logs = self.logs.blocking_read();
+
+        let _action = self.session_view.show(
+            ui,
+            task,
+            &sessions,
+            current_session.as_ref(),
+            &logs,
+            &self.keyboard_state,
+        );
     }
 
     fn handle_keyboard_input(&mut self, ctx: &egui::Context) {
@@ -483,31 +547,83 @@ impl KanbanApp {
     }
 
     fn execute_action(&mut self, action: Action) {
-        let tasks = self.tasks.blocking_read();
-        let column_sizes = self.get_column_sizes(&tasks);
-        drop(tasks);
-
         match action {
             Action::MoveSelection(direction) => {
-                self.keyboard_state.move_selection(direction, 4, &column_sizes);
+                self.handle_move_selection(direction);
             }
             Action::JumpToTop => {
                 self.keyboard_state.jump_to_top();
             }
             Action::JumpToBottom => {
+                let tasks = self.tasks.blocking_read();
+                let column_sizes = self.get_column_sizes(&tasks);
                 let column_size = column_sizes[self.keyboard_state.selected_column];
                 self.keyboard_state.jump_to_bottom(column_size);
             }
             Action::JumpToColumn(col) => {
-                self.keyboard_state.jump_to_column(col, 4, &column_sizes);
+                if self.keyboard_state.view_level == ViewLevel::Task {
+                    let tasks = self.tasks.blocking_read();
+                    let column_sizes = self.get_column_sizes(&tasks);
+                    self.keyboard_state.jump_to_column(col, 4, &column_sizes);
+                }
             }
             Action::ToggleMode(mode) => {
                 self.keyboard_state.mode = mode;
+            }
+            Action::DrillDown => {
+                self.handle_drill_down();
+            }
+            Action::GoBack => {
+                self.keyboard_state.go_back();
             }
             Action::Quit => {
                 std::process::exit(0);
             }
             _ => {}
+        }
+    }
+
+    fn handle_move_selection(&mut self, direction: Direction) {
+        match self.keyboard_state.view_level {
+            ViewLevel::Project => {
+                let projects = self.projects.blocking_read();
+                self.keyboard_state
+                    .move_project_selection(direction, projects.len());
+            }
+            ViewLevel::Task => {
+                let tasks = self.tasks.blocking_read();
+                let column_sizes = self.get_column_sizes(&tasks);
+                self.keyboard_state.move_selection(direction, 4, &column_sizes);
+            }
+            ViewLevel::Session => {
+                let sessions = self.sessions.blocking_read();
+                self.keyboard_state
+                    .move_session_selection(direction, sessions.len());
+            }
+        }
+    }
+
+    fn handle_drill_down(&mut self) {
+        match self.keyboard_state.view_level {
+            ViewLevel::Project => {
+                let projects = self.projects.blocking_read();
+                if let Some(project) = projects.get(self.keyboard_state.selected_project_index) {
+                    let project_id = project.id.clone();
+                    drop(projects);
+                    *self.selected_project.blocking_write() = Some(project_id);
+                    self.keyboard_state.drill_down();
+                }
+            }
+            ViewLevel::Task => {
+                let tasks = self.tasks.blocking_read();
+                if let Some(task) = self.task_view.get_selected_task(&tasks, &self.keyboard_state) {
+                    let task_id = task.id.clone();
+                    drop(tasks);
+                    *self.selected_task.blocking_write() = Some(task_id);
+                    self.keyboard_state.drill_down();
+                }
+            }
+            ViewLevel::Session => {}
         }
     }
 
