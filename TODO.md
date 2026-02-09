@@ -55,10 +55,10 @@
 
 ### Phase 5a: ProjectView + TaskView (depends on Phase 4a keyboard + Phase 6 components)
 
-- [ ] `src/views/ProjectView.tsx` — project list with `[n]` new, `[d]` delete, `[Enter/l]` open
-- [ ] `src/views/TaskView.tsx` — kanban board with 4 columns (Todo, InProgress, InReview, Done)
-  - [ ] Column navigation with `h/l`, card navigation with `j/k`
-  - [ ] `[n]` new task, `[e]` edit, `[d]` delete, `[Enter/l]` open session
+- [x] `src/views/ProjectView.tsx` — project list with `[n]` new, `[d]` delete, `[Enter/l]` open
+- [x] `src/views/TaskView.tsx` — kanban board with 4 columns (Todo, InProgress, InReview, Done)
+  - [x] Column navigation with `h/l`, card navigation with `j/k`
+  - [x] `[n]` new task, `[e]` edit, `[d]` delete, `[Enter/l]` open session
 
 ---
 
