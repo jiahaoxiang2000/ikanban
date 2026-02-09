@@ -1,1 +1,5 @@
 export { useKeyboard, getNavigationBounds, clampIndex, getNextColumnStatus } from "./useKeyboard"
+export { useSession } from "./useSession"
+export type { SessionState, SessionMessage, UseSessionActions, UseSessionResult } from "./useSession"
+export { useAgent } from "./useAgent"
+export type { AgentPhase, UseAgentResult } from "./useAgent"

@@ -46,12 +46,12 @@
 
 ### Phase 4b: Session & Agent Hooks (depends on Phase 3 agent infra)
 
-- [ ] `src/hooks/useSession.ts` — wraps `client.session.*` + `client.event.subscribe()` for real-time updates
-  - [ ] Handle `EventSessionStatus` (idle/busy/retry)
-  - [ ] Handle `EventMessageUpdated`, `EventMessagePartUpdated` (streaming text + tool calls)
-  - [ ] Handle `EventPermissionUpdated` / `EventPermissionReplied`
-  - [ ] Handle `EventTodoUpdated`, `EventSessionCreated`, `EventSessionUpdated`, `EventSessionError`, `EventFileEdited`
-- [ ] `src/hooks/useAgent.ts` — manages `createOpencode()` lifecycle per task
+- [x] `src/hooks/useSession.ts` — wraps `client.session.*` + `client.event.subscribe()` for real-time updates
+  - [x] Handle `EventSessionStatus` (idle/busy/retry)
+  - [x] Handle `EventMessageUpdated`, `EventMessagePartUpdated` (streaming text + tool calls)
+  - [x] Handle `EventPermissionUpdated` / `EventPermissionReplied`
+  - [x] Handle `EventTodoUpdated`, `EventSessionCreated`, `EventSessionUpdated`, `EventSessionError`, `EventFileEdited`
+- [x] `src/hooks/useAgent.ts` — manages `createOpencode()` lifecycle per task
 
 ### Phase 5a: ProjectView + TaskView (depends on Phase 4a keyboard + Phase 6 components)
 
