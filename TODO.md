@@ -34,11 +34,11 @@
 
 ### Phase 6: Components (depends only on Phase 2 types)
 
-- [ ] `src/components/Board.tsx` — kanban board layout (4 columns)
-- [ ] `src/components/Column.tsx` — single kanban column with cards
-- [ ] `src/components/Card.tsx` — task card display
-- [ ] `src/components/LogPanel.tsx` — side panel for SDK event logs (stdout, events)
-- [ ] `src/components/Input.tsx` — text input for session prompts
+- [x] `src/components/Board.tsx` — kanban board layout (4 columns)
+- [x] `src/components/Column.tsx` — single kanban column with cards
+- [x] `src/components/Card.tsx` — task card display
+- [x] `src/components/LogPanel.tsx` — side panel for SDK event logs (stdout, events)
+- [x] `src/components/Input.tsx` — text input for session prompts
 
 ---
 
