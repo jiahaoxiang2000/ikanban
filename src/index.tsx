@@ -4,6 +4,7 @@ import React from "react"
 import { useStore } from "./state/store.ts"
 import { ProjectView } from "./views/ProjectView.tsx"
 import { TaskView } from "./views/TaskView.tsx"
+import { SessionView } from "./views/SessionView.tsx"
 import { LogPanel } from "./components/LogPanel.tsx"
 
 function App() {
@@ -26,11 +27,7 @@ function App() {
         <Box flexDirection="column" flexGrow={1}>
           {view.kind === "projects" && <ProjectView />}
           {view.kind === "tasks" && <TaskView />}
-          {view.kind === "session" && (
-            <Box padding={1}>
-              <Text color="cyan">Session view (coming soon)</Text>
-            </Box>
-          )}
+          {view.kind === "session" && <SessionView />}
         </Box>
 
         {showLogs && <LogPanel />}

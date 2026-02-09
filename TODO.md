@@ -66,11 +66,11 @@
 
 ### Phase 5b: SessionView (depends on Phase 4b hooks + Phase 6 components)
 
-- [ ] `src/views/SessionView.tsx` — agent interaction view
-  - [ ] Display agent messages (User, Agent, Tool parts)
-  - [ ] Text input for sending prompts via `client.session.prompt()`
-  - [ ] `[Ctrl+C]` stop agent via `client.session.abort()`
-  - [ ] `[L]` toggle log panel
+- [x] `src/views/SessionView.tsx` — agent interaction view
+  - [x] Display agent messages (User, Agent, Tool parts)
+  - [x] Text input for sending prompts via `client.session.prompt()`
+  - [x] `[Ctrl+C]` stop agent via `client.session.abort()`
+  - [x] `[L]` toggle log panel
 
 ### Phase 7: App Shell (depends on Phase 5a views)
 
