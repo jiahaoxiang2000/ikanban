@@ -21,12 +21,12 @@
 
 ### Phase 3: Agent Infrastructure
 
-- [ ] Implement `src/agent/instance.ts` — `AgentInstance` type and create/destroy helpers
-  - [ ] `createOpencode()` per worktree directory
-  - [ ] Session creation via `client.session.create()`
-  - [ ] Cleanup: `client.session.abort()`, `server.close()`
-- [ ] Implement `src/agent/registry.ts` — `Map<taskId, AgentInstance>` management
-- [ ] Git worktree add/remove shell commands (`git worktree add <path> -b task/<id>-<slug>`)
+- [x] Implement `src/agent/instance.ts` — `AgentInstance` type and create/destroy helpers
+  - [x] `createOpencode()` per worktree directory
+  - [x] Session creation via `client.session.create()`
+  - [x] Cleanup: `client.session.abort()`, `server.close()`
+- [x] Implement `src/agent/registry.ts` — `Map<taskId, AgentInstance>` management
+- [x] Git worktree add/remove shell commands (`git worktree add <path> -b task/<id>-<slug>`)
 
 ### Phase 4a: Keyboard Hook (depends only on Phase 2 store)
 
