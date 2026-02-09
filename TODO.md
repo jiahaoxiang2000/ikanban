@@ -74,9 +74,9 @@
 
 ### Phase 7: App Shell (depends on Phase 5a views)
 
-- [ ] `src/app.tsx` — root component with view state machine (Project → Task → Session)
-- [ ] Wire up view transitions: `l/Enter` to drill in, `h/Esc` to go back
-- [ ] Focus management (`selectedIndex`, `columnIndex`, `showLogs`, `inputFocused`)
+- [x] `src/app.tsx` — root component with view state machine (Project → Task → Session)
+- [x] Wire up view transitions: `l/Enter` to drill in, `h/Esc` to go back
+- [x] Focus management (`selectedIndex`, `columnIndex`, `showLogs`, `inputFocused`)
 
 ---
 

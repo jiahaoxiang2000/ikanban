@@ -150,7 +150,7 @@ function createStore() {
   // --- Navigation ---
 
   function navigate(view: AppView) {
-    setState({ view, selectedIndex: 0, columnIndex: 0 })
+    setState({ view, selectedIndex: 0, columnIndex: 0, inputFocused: false })
   }
 
   function setSelectedIndex(index: number) {
