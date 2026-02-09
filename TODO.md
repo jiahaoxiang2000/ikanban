@@ -30,7 +30,7 @@
 
 ### Phase 4a: Keyboard Hook (depends only on Phase 2 store)
 
-- [ ] `src/hooks/useKeyboard.ts` — vim-like keyboard navigation (`h/j/k/l`, `Enter`, `Esc`, `n/d/e/r/?`)
+- [x] `src/hooks/useKeyboard.ts` — vim-like keyboard navigation (`h/j/k/l`, `Enter`, `Esc`, `n/d/e/r/?`)
 
 ### Phase 6: Components (depends only on Phase 2 types)
 
