@@ -11,9 +11,9 @@
 
 ## Phase 2: State & Data Model
 
-- [ ] Define types in `src/state/types.ts` (`IKanbanProject`, `IKanbanTask`, `TaskStatus`, `AppView`, `AppState`)
-- [ ] Implement store in `src/state/store.ts` (project/task CRUD, view navigation, selection state)
-- [ ] Implement local JSON storage at `~/.ikanban/data.json` (read/write projects and tasks)
+- [x] Define types in `src/state/types.ts` (`IKanbanProject`, `IKanbanTask`, `TaskStatus`, `AppView`, `AppState`)
+- [x] Implement store in `src/state/store.ts` (project/task CRUD, view navigation, selection state)
+- [x] Implement local JSON storage at `~/.ikanban/data.json` (read/write projects and tasks)
 
 ## Phase 3: Agent Infrastructure
 
