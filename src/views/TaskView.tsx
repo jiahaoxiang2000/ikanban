@@ -41,6 +41,18 @@ export function TaskView() {
 
   const handleSelect = useCallback(async () => {
     if (!selectedTask || !project) return
+
+    // If the task already has a session, just navigate to it
+    if (selectedTask.sessionId) {
+      store.navigate({
+        kind: "session",
+        taskId: selectedTask.id,
+        sessionId: selectedTask.sessionId,
+      })
+      return
+    }
+
+    // Otherwise create worktree + agent + session, then navigate
     try {
       const agent = await startAgent(
         project.path,

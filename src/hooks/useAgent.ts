@@ -27,14 +27,27 @@ export interface UseAgentResult {
   client: OpencodeClient | null
   /** Session hook result (state + actions) for the active session */
   session: UseSessionResult
-  /** Start the agent for this task (creates worktree + opencode server) */
-  start: () => Promise<void>
+  /** Start the agent for this task (creates worktree + opencode server + sends initial prompt) */
+  start: (initialPrompt?: string) => Promise<void>
   /** Stop the agent and clean up */
   stop: () => Promise<void>
   /** Send a prompt to the agent's session */
   sendMessage: (text: string) => Promise<void>
   /** Last error message, if phase === "error" */
   error: string | null
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function buildInitialPrompt(
+  task: { title: string; description?: string } | undefined,
+): string | null {
+  if (!task) return null
+  const parts = [task.title]
+  if (task.description) parts.push(task.description)
+  return parts.join("\n\n")
 }
 
 // ---------------------------------------------------------------------------
@@ -90,7 +103,12 @@ export function useAgent(
   // Start
   // -----------------------------------------------------------------------
 
-  const start = useCallback(async () => {
+  /**
+   * Start the agent for this task. If `initialPrompt` is provided, it will be
+   * sent to the session immediately after creation (the task's
+   * title + description are used by default when called from the UI).
+   */
+  const start = useCallback(async (initialPrompt?: string) => {
     if (!taskId || !projectPath) return
     if (phase === "starting" || phase === "ready") return
 
@@ -123,6 +141,16 @@ export function useAgent(
       setSessionId(agent.sessionId)
       setDirectory(agent.worktreePath)
       setPhase("ready")
+
+      // Send the initial prompt if provided
+      const prompt = initialPrompt ?? buildInitialPrompt(task)
+      if (prompt) {
+        await agent.client.session.promptAsync({
+          path: { id: agent.sessionId },
+          query: { directory: agent.worktreePath },
+          body: { parts: [{ type: "text", text: prompt }] },
+        })
+      }
     } catch (err) {
       if (mountedRef.current) {
         setPhase("error")

@@ -1,5 +1,6 @@
 import { $ } from "bun"
 import { join } from "node:path"
+import { existsSync } from "node:fs"
 import { type AgentInstance, createAgent, destroyAgent } from "./instance.ts"
 
 const agents = new Map<string, AgentInstance>()
@@ -27,7 +28,22 @@ export async function addWorktree(
 ): Promise<{ worktreePath: string; branchName: string }> {
   const branchName = branchFor(taskId, title)
   const worktreePath = worktreeDir(projectPath, taskId)
-  await $`git -C ${projectPath} worktree add ${worktreePath} -b ${branchName}`.quiet()
+
+  if (existsSync(worktreePath)) {
+    // Worktree already exists (e.g. app restarted) – reuse it
+    return { worktreePath, branchName }
+  }
+
+  // Check if the branch already exists
+  try {
+    await $`git -C ${projectPath} rev-parse --verify ${branchName}`.quiet()
+    // Branch exists but worktree doesn't – create worktree from existing branch
+    await $`git -C ${projectPath} worktree add ${worktreePath} ${branchName}`.quiet()
+  } catch {
+    // Branch doesn't exist – create both
+    await $`git -C ${projectPath} worktree add ${worktreePath} -b ${branchName}`.quiet()
+  }
+
   return { worktreePath, branchName }
 }
 

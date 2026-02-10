@@ -4,7 +4,7 @@ import { store, useStore } from "../state/store.ts"
 import { useAgent } from "../hooks/useAgent.ts"
 import { Input } from "../components/Input.tsx"
 import type { SessionMessage } from "../hooks/useSession.ts"
-import type { Part } from "@opencode-ai/sdk"
+import type { Part, Permission, FileDiff, Todo, AssistantMessage } from "@opencode-ai/sdk"
 
 // ---------------------------------------------------------------------------
 // Part renderers
@@ -88,6 +88,223 @@ function PartView({ part }: { part: Part }) {
 }
 
 // ---------------------------------------------------------------------------
+// Permission prompt
+// ---------------------------------------------------------------------------
+
+function PermissionPrompt({
+  permission,
+  onReply,
+}: {
+  permission: Permission
+  onReply: (id: string, response: "once" | "always" | "reject") => void
+}) {
+  const [selected, setSelected] = useState(0)
+  const options = ["Allow Once", "Always Allow", "Reject"] as const
+  const responses = ["once", "always", "reject"] as const
+
+  useInput((input, key) => {
+    if (input === "j" || key.downArrow) {
+      setSelected((prev) => Math.min(prev + 1, options.length - 1))
+    } else if (input === "k" || key.upArrow) {
+      setSelected((prev) => Math.max(prev - 1, 0))
+    } else if (key.return) {
+      const r = responses[selected]
+      if (r) onReply(permission.id, r)
+    } else if (input === "a") {
+      onReply(permission.id, "once")
+    } else if (input === "A") {
+      onReply(permission.id, "always")
+    } else if (input === "r") {
+      onReply(permission.id, "reject")
+    }
+  })
+
+  return (
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor="yellow"
+      paddingX={1}
+      marginX={1}
+      marginY={1}
+    >
+      <Text bold color="yellow">
+        Permission Required
+      </Text>
+      <Text color="white" wrap="wrap">
+        {permission.title}
+      </Text>
+      {"metadata" in permission && permission.metadata && (
+        <Box paddingLeft={2}>
+          <Text color="gray" dimColor wrap="wrap">
+            {typeof permission.metadata === "object"
+              ? JSON.stringify(permission.metadata, null, 2)
+              : String(permission.metadata)}
+          </Text>
+        </Box>
+      )}
+      <Box marginTop={1} flexDirection="column">
+        {options.map((label, i) => (
+          <Box key={label} gap={1}>
+            <Text color={i === selected ? "cyan" : "gray"}>
+              {i === selected ? ">" : " "}
+            </Text>
+            <Text bold={i === selected}>{label}</Text>
+          </Box>
+        ))}
+      </Box>
+      <Box marginTop={1}>
+        <Text color="gray" dimColor>
+          [a] allow once  [A] always  [r] reject  [j/k] navigate  [Enter] confirm
+        </Text>
+      </Box>
+    </Box>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Todo list
+// ---------------------------------------------------------------------------
+
+function TodoList({ todos }: { todos: Todo[] }) {
+  if (todos.length === 0) return null
+
+  const statusIcon = (status: string) => {
+    switch (status) {
+      case "completed":
+        return "+"
+      case "in_progress":
+        return "~"
+      case "cancelled":
+        return "x"
+      default:
+        return "."
+    }
+  }
+
+  const statusColor = (status: string) => {
+    switch (status) {
+      case "completed":
+        return "green"
+      case "in_progress":
+        return "yellow"
+      case "cancelled":
+        return "red"
+      default:
+        return "gray"
+    }
+  }
+
+  const completed = todos.filter((t) => t.status === "completed").length
+
+  return (
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor="blue"
+      paddingX={1}
+      marginX={1}
+    >
+      <Box gap={1} marginBottom={0}>
+        <Text bold color="blue">
+          Tasks
+        </Text>
+        <Text color="gray">
+          ({completed}/{todos.length})
+        </Text>
+      </Box>
+      {todos.map((todo) => (
+        <Box key={todo.id} gap={1}>
+          <Text color={statusColor(todo.status)}>
+            [{statusIcon(todo.status)}]
+          </Text>
+          <Text
+            color={todo.status === "completed" ? "gray" : "white"}
+            dimColor={todo.status === "completed"}
+            wrap="truncate"
+          >
+            {todo.content}
+          </Text>
+        </Box>
+      ))}
+    </Box>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Cost summary
+// ---------------------------------------------------------------------------
+
+function CostSummary({
+  messages,
+}: {
+  messages: SessionMessage[]
+}) {
+  let totalCost = 0
+  let totalInput = 0
+  let totalOutput = 0
+
+  for (const msg of messages) {
+    if (msg.info.role === "assistant") {
+      const info = msg.info as AssistantMessage
+      totalCost += info.cost ?? 0
+      totalInput += info.tokens?.input ?? 0
+      totalOutput += info.tokens?.output ?? 0
+    }
+  }
+
+  if (totalCost === 0 && totalInput === 0) return null
+
+  return (
+    <Box paddingX={1} gap={2}>
+      <Text color="gray" dimColor>
+        Cost: ${totalCost.toFixed(4)}
+      </Text>
+      <Text color="gray" dimColor>
+        Tokens: {totalInput.toLocaleString()}in / {totalOutput.toLocaleString()}out
+      </Text>
+    </Box>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Diff view
+// ---------------------------------------------------------------------------
+
+function DiffSummary({ diffs }: { diffs: FileDiff[] }) {
+  if (diffs.length === 0) return null
+
+  const totalAdded = diffs.reduce((sum, d) => sum + d.additions, 0)
+  const totalRemoved = diffs.reduce((sum, d) => sum + d.deletions, 0)
+
+  return (
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor="magenta"
+      paddingX={1}
+      marginX={1}
+    >
+      <Box gap={1} marginBottom={1}>
+        <Text bold color="magenta">
+          Changes
+        </Text>
+        <Text color="green">+{totalAdded}</Text>
+        <Text color="red">-{totalRemoved}</Text>
+        <Text color="gray">({diffs.length} files)</Text>
+      </Box>
+      {diffs.map((d) => (
+        <Box key={d.file} gap={1}>
+          <Text color="white">{d.file}</Text>
+          <Text color="green">+{d.additions}</Text>
+          <Text color="red">-{d.deletions}</Text>
+        </Box>
+      ))}
+    </Box>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Message renderer
 // ---------------------------------------------------------------------------
 
@@ -167,6 +384,8 @@ function StatusBar({
 export function SessionView() {
   const { view, showLogs, inputFocused } = useStore()
   const [scrollOffset, setScrollOffset] = useState(0)
+  const [showDiff, setShowDiff] = useState(false)
+  const [showTodos, setShowTodos] = useState(true)
 
   if (view.kind !== "session") return null
 
@@ -178,7 +397,11 @@ export function SessionView() {
 
   const agent = useAgent(taskId, project?.path ?? null)
   const { state: sessionState, actions } = agent.session
-  const { messages, status } = sessionState
+  const { messages, status, pendingPermission, todos, diffs: sseDiffs } = sessionState
+
+  // Use SSE diffs as the primary source, with fallback to explicit fetch
+  const [fetchedDiffs, setFetchedDiffs] = useState<FileDiff[]>([])
+  const diffs = sseDiffs.length > 0 ? sseDiffs : fetchedDiffs
 
   // Auto-start agent if not ready
   useEffect(() => {
@@ -186,6 +409,43 @@ export function SessionView() {
       void agent.start()
     }
   }, [agent.phase, project?.path])
+
+  // -----------------------------------------------------------------------
+  // Detect idle → fetch diff → move task to InReview
+  // -----------------------------------------------------------------------
+  const prevStatusRef = useRef(status.type)
+  useEffect(() => {
+    const wasBusy = prevStatusRef.current === "busy"
+    prevStatusRef.current = status.type
+
+    if (!wasBusy || status.type !== "idle") return
+    if (!agent.client || !view.sessionId) return
+
+    // Agent just finished working – fetch the diff
+    const directory = task?.worktreePath
+    const q = directory ? { directory } : undefined
+
+    void (async () => {
+      try {
+        const result = await agent.client!.session.diff({
+          path: { id: view.sessionId },
+          query: q,
+        })
+        const fileDiffs = result.data ?? []
+        setFetchedDiffs(fileDiffs)
+        if (fileDiffs.length > 0) {
+          setShowDiff(true)
+        }
+
+        // Move task to InReview if there are changes, otherwise leave as InProgress
+        if (fileDiffs.length > 0 && task) {
+          store.updateTask(task.id, { status: "InReview" })
+        }
+      } catch {
+        // diff fetch failed – non-critical
+      }
+    })()
+  }, [status.type, agent.client, view.sessionId, task?.worktreePath, task?.id])
 
   // Auto-scroll to bottom when new messages arrive
   const prevMessageCount = useRef(messages.length)
@@ -199,10 +459,56 @@ export function SessionView() {
   // Handle prompt submission
   const handleSubmit = useCallback(
     (text: string) => {
+      // Clear diff display when sending a follow-up
+      setShowDiff(false)
+      setFetchedDiffs([])
       void agent.sendMessage(text)
     },
     [agent.sendMessage],
   )
+
+  // Handle permission reply
+  const handlePermissionReply = useCallback(
+    (permissionId: string, response: "once" | "always" | "reject") => {
+      void actions.replyPermission(permissionId, response)
+    },
+    [actions],
+  )
+
+  // Fork session at a specific message
+  const handleFork = useCallback(
+    async (messageId?: string) => {
+      if (!agent.client || !view.sessionId) return
+      const directory = task?.worktreePath
+      const q = directory ? { directory } : undefined
+      try {
+        const result = await agent.client.session.fork({
+          path: { id: view.sessionId },
+          body: messageId ? { messageID: messageId } : {},
+          query: q,
+        })
+        if (result.data) {
+          // Update task to point to the new forked session
+          store.updateTask(taskId, { sessionId: result.data.id })
+          store.navigate({
+            kind: "session",
+            taskId,
+            sessionId: result.data.id,
+          })
+        }
+      } catch {
+        // fork failed
+      }
+    },
+    [agent.client, view.sessionId, task?.worktreePath, taskId],
+  )
+
+  // Mark task as Done
+  const handleMarkDone = useCallback(() => {
+    if (task) {
+      store.updateTask(task.id, { status: "Done" })
+    }
+  }, [task])
 
   // Focus input on mount
   useEffect(() => {
@@ -212,10 +518,11 @@ export function SessionView() {
     }
   }, [])
 
-  // Keyboard shortcuts (active when input is NOT focused)
+  // Keyboard shortcuts (active when input is NOT focused and no permission pending)
   useInput(
     (input, key) => {
       if (inputFocused) return
+      if (pendingPermission) return // permission prompt handles its own input
 
       // Ctrl+C: abort agent
       if (input === "c" && key.ctrl) {
@@ -226,6 +533,36 @@ export function SessionView() {
       // L: toggle log panel
       if (input === "l" || input === "L") {
         store.toggleLogs()
+        return
+      }
+
+      // D: toggle diff view
+      if (input === "D") {
+        setShowDiff((prev) => !prev)
+        return
+      }
+
+      // F: fork session
+      if (input === "F") {
+        void handleFork()
+        return
+      }
+
+      // M: mark task as Done
+      if (input === "M") {
+        handleMarkDone()
+        return
+      }
+
+      // T: toggle todo list
+      if (input === "T") {
+        setShowTodos((prev) => !prev)
+        return
+      }
+
+      // S: stop agent and clean up
+      if (input === "S") {
+        void agent.stop()
         return
       }
 
@@ -341,14 +678,31 @@ export function SessionView() {
         )}
       </Box>
 
+      {/* Agent todo list */}
+      {showTodos && todos.length > 0 && <TodoList todos={todos} />}
+
+      {/* Diff summary (shown after agent completes) */}
+      {showDiff && diffs.length > 0 && <DiffSummary diffs={diffs} />}
+
+      {/* Cost summary */}
+      <CostSummary messages={messages} />
+
+      {/* Permission prompt (blocks input when active) */}
+      {pendingPermission && (
+        <PermissionPrompt
+          permission={pendingPermission}
+          onReply={handlePermissionReply}
+        />
+      )}
+
       {/* Input area */}
-      {agent.phase === "ready" && (
+      {agent.phase === "ready" && !pendingPermission && (
         <Box paddingX={1}>
           <Input
             placeholder={
               status.type === "busy"
                 ? "Agent is working... (Ctrl+C to stop)"
-                : "Type a prompt..."
+                : "Type a prompt or follow-up..."
             }
             onSubmit={handleSubmit}
           />
@@ -360,7 +714,7 @@ export function SessionView() {
         <Text color="gray" dimColor>
           {inputFocused
             ? "[Enter] send  [Esc] unfocus  [Ctrl+C] stop agent"
-            : "[i/Enter] focus input  [Ctrl+C] stop  [L] logs  [j/k] scroll  [Esc] back"}
+            : "[i/Enter] input  [Ctrl+C] stop  [L] logs  [D] diff  [T] todos  [F] fork  [M] done  [S] cleanup  [Esc] back"}
         </Text>
       </Box>
     </Box>

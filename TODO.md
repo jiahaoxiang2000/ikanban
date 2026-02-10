@@ -84,11 +84,11 @@
 
 ### Phase 8: Worktree Lifecycle Integration
 
-- [ ] Start task: create worktree → create opencode instance → create session → send initial prompt → move to InProgress
-- [ ] Monitor execution: subscribe to SSE events → render streaming messages → handle permissions
-- [ ] Complete task: detect idle status → show diff via `client.session.diff()` → move to InReview/Done
-- [ ] Follow-up: send additional prompts or fork session
-- [ ] Cleanup: abort session → close server → remove worktree
+- [x] Start task: create worktree → create opencode instance → create session → send initial prompt → move to InProgress
+- [x] Monitor execution: subscribe to SSE events → render streaming messages → handle permissions
+- [x] Complete task: detect idle status → show diff via `client.session.diff()` → move to InReview/Done
+- [x] Follow-up: send additional prompts or fork session
+- [x] Cleanup: abort session → close server → remove worktree
 
 ### Phase 9: Polish
 

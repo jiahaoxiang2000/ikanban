@@ -8,6 +8,7 @@ import type {
   Permission,
   Todo,
   Event,
+  FileDiff,
 } from "@opencode-ai/sdk"
 
 // ---------------------------------------------------------------------------
@@ -32,6 +33,8 @@ export interface SessionState {
   todos: Todo[]
   /** Files edited during this session */
   editedFiles: string[]
+  /** Session diffs (populated via SSE or explicit fetch) */
+  diffs: FileDiff[]
   /** Last error from the session */
   error: Event | null
   /** Whether the initial data has been loaded */
@@ -69,6 +72,7 @@ function initialState(): SessionState {
     pendingPermission: null,
     todos: [],
     editedFiles: [],
+    diffs: [],
     error: null,
     ready: false,
   }
@@ -366,6 +370,36 @@ export function useSession(
                   : m,
               ),
             }))
+          }
+          break
+        }
+
+        // --- Session compacted (messages were compacted, reload) ---
+        case "session.compacted": {
+          if (evt.properties.sessionID === sid) {
+            // Reload messages after compaction
+            void (async () => {
+              try {
+                const messagesRes = await client!.session.messages({
+                  path: { id: sid },
+                  query: q,
+                })
+                const messages: SessionMessage[] = (
+                  messagesRes.data ?? []
+                ).map((m) => ({ info: m.info, parts: m.parts }))
+                patch({ messages })
+              } catch {
+                // non-critical
+              }
+            })()
+          }
+          break
+        }
+
+        // --- Session diff (real-time diff update) ---
+        case "session.diff": {
+          if (evt.properties.sessionID === sid) {
+            patch({ diffs: evt.properties.diff })
           }
           break
         }
