@@ -15,16 +15,36 @@ export async function createAgent(
   worktreePath: string,
   branchName: string,
 ): Promise<AgentInstance> {
-  const { client, server } = await createOpencode()
+  let client: OpencodeClient
+  let server: { url: string; close(): void }
 
-  const { data: session } = await client.session.create({
-    body: {},
-    query: { directory: worktreePath },
-  })
+  try {
+    const result = await createOpencode()
+    client = result.client
+    server = result.server
+  } catch (err) {
+    throw new Error(
+      `Failed to start opencode server: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+
+  let session: { id: string } | undefined
+  try {
+    const result = await client.session.create({
+      body: {},
+      query: { directory: worktreePath },
+    })
+    session = result.data ?? undefined
+  } catch (err) {
+    server.close()
+    throw new Error(
+      `Failed to create session for task ${taskId}: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
 
   if (!session) {
     server.close()
-    throw new Error(`Failed to create session for task ${taskId}`)
+    throw new Error(`Failed to create session for task ${taskId}: no session returned`)
   }
 
   return {

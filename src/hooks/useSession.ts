@@ -51,6 +51,8 @@ export interface UseSessionActions {
     permissionId: string,
     response: "once" | "always" | "reject",
   ) => Promise<void>
+  /** Re-fetch session state (messages, todos, session metadata) */
+  refresh: () => Promise<void>
 }
 
 export interface UseSessionResult {
@@ -432,24 +434,42 @@ export function useSession(
     async (text: string) => {
       if (!client || !sessionId) return
       const q = directory ? { directory } : undefined
-      await client.session.promptAsync({
-        path: { id: sessionId },
-        query: q,
-        body: {
-          parts: [{ type: "text", text }],
-        },
-      })
+      try {
+        await client.session.promptAsync({
+          path: { id: sessionId },
+          query: q,
+          body: {
+            parts: [{ type: "text", text }],
+          },
+        })
+      } catch (err) {
+        patch({
+          error: {
+            type: "session.error",
+            properties: {
+              error: {
+                type: "unknown",
+                message: `Failed to send message: ${err instanceof Error ? err.message : String(err)}`,
+              },
+            },
+          } as unknown as Event,
+        })
+      }
     },
-    [client, sessionId, directory],
+    [client, sessionId, directory, patch],
   )
 
   const abort = useCallback(async () => {
     if (!client || !sessionId) return
     const q = directory ? { directory } : undefined
-    await client.session.abort({
-      path: { id: sessionId },
-      query: q,
-    })
+    try {
+      await client.session.abort({
+        path: { id: sessionId },
+        query: q,
+      })
+    } catch {
+      // abort is best-effort
+    }
   }, [client, sessionId, directory])
 
   const replyPermission = useCallback(
@@ -459,18 +479,59 @@ export function useSession(
     ) => {
       if (!client || !sessionId) return
       const q = directory ? { directory } : undefined
-      await client.postSessionIdPermissionsPermissionId({
-        path: { id: sessionId, permissionID: permissionId },
-        query: q,
-        body: { response },
-      })
-      patch({ pendingPermission: null })
+      try {
+        await client.postSessionIdPermissionsPermissionId({
+          path: { id: sessionId, permissionID: permissionId },
+          query: q,
+          body: { response },
+        })
+        patch({ pendingPermission: null })
+      } catch (err) {
+        patch({
+          error: {
+            type: "session.error",
+            properties: {
+              error: {
+                type: "unknown",
+                message: `Failed to reply to permission: ${err instanceof Error ? err.message : String(err)}`,
+              },
+            },
+          } as unknown as Event,
+        })
+      }
     },
     [client, sessionId, directory, patch],
   )
 
+  const refresh = useCallback(async () => {
+    if (!client || !sessionId) return
+    const q = directory ? { directory } : undefined
+    try {
+      const [sessionRes, messagesRes, todosRes] = await Promise.all([
+        client.session.get({ path: { id: sessionId }, query: q }),
+        client.session.messages({ path: { id: sessionId }, query: q }),
+        client.session.todo({ path: { id: sessionId }, query: q }),
+      ])
+
+      const messages: SessionMessage[] = (messagesRes.data ?? []).map(
+        (m) => ({
+          info: m.info,
+          parts: m.parts,
+        }),
+      )
+
+      patch({
+        session: sessionRes.data ?? null,
+        messages,
+        todos: todosRes.data ?? [],
+      })
+    } catch {
+      // refresh is best-effort
+    }
+  }, [client, sessionId, directory, patch])
+
   return {
     state,
-    actions: { sendMessage, abort, replyPermission },
+    actions: { sendMessage, abort, replyPermission, refresh },
   }
 }

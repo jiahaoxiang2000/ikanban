@@ -5,6 +5,21 @@ import { type AgentInstance, createAgent, destroyAgent } from "./instance.ts"
 
 const agents = new Map<string, AgentInstance>()
 
+/** Structured error for agent/worktree operations */
+export class AgentError extends Error {
+  readonly code: "worktree" | "sdk" | "session" | "cleanup"
+
+  constructor(
+    message: string,
+    code: "worktree" | "sdk" | "session" | "cleanup",
+    override readonly cause?: unknown,
+  ) {
+    super(message)
+    this.name = "AgentError"
+    this.code = code
+  }
+}
+
 function slugify(text: string): string {
   return text
     .toLowerCase()
@@ -29,6 +44,24 @@ export async function addWorktree(
   const branchName = branchFor(taskId, title)
   const worktreePath = worktreeDir(projectPath, taskId)
 
+  // Verify the project path is a git repository
+  if (!existsSync(projectPath)) {
+    throw new AgentError(
+      `Project path does not exist: ${projectPath}`,
+      "worktree",
+    )
+  }
+
+  try {
+    await $`git -C ${projectPath} rev-parse --git-dir`.quiet()
+  } catch (err) {
+    throw new AgentError(
+      `Not a git repository: ${projectPath}`,
+      "worktree",
+      err,
+    )
+  }
+
   if (existsSync(worktreePath)) {
     // Worktree already exists (e.g. app restarted) – reuse it
     return { worktreePath, branchName }
@@ -38,10 +71,27 @@ export async function addWorktree(
   try {
     await $`git -C ${projectPath} rev-parse --verify ${branchName}`.quiet()
     // Branch exists but worktree doesn't – create worktree from existing branch
-    await $`git -C ${projectPath} worktree add ${worktreePath} ${branchName}`.quiet()
-  } catch {
+    try {
+      await $`git -C ${projectPath} worktree add ${worktreePath} ${branchName}`.quiet()
+    } catch (err) {
+      throw new AgentError(
+        `Failed to create worktree from existing branch '${branchName}': ${err instanceof Error ? err.message : String(err)}`,
+        "worktree",
+        err,
+      )
+    }
+  } catch (err) {
+    if (err instanceof AgentError) throw err
     // Branch doesn't exist – create both
-    await $`git -C ${projectPath} worktree add ${worktreePath} -b ${branchName}`.quiet()
+    try {
+      await $`git -C ${projectPath} worktree add ${worktreePath} -b ${branchName}`.quiet()
+    } catch (innerErr) {
+      throw new AgentError(
+        `Failed to create worktree with new branch '${branchName}': ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`,
+        "worktree",
+        innerErr,
+      )
+    }
   }
 
   return { worktreePath, branchName }
@@ -52,7 +102,15 @@ export async function removeWorktree(
   worktreePath: string,
   branchName: string,
 ): Promise<void> {
-  await $`git -C ${projectPath} worktree remove ${worktreePath} --force`.quiet()
+  try {
+    await $`git -C ${projectPath} worktree remove ${worktreePath} --force`.quiet()
+  } catch (err) {
+    throw new AgentError(
+      `Failed to remove worktree at ${worktreePath}: ${err instanceof Error ? err.message : String(err)}`,
+      "cleanup",
+      err,
+    )
+  }
   try {
     await $`git -C ${projectPath} branch -D ${branchName}`.quiet()
   } catch {
@@ -82,9 +140,23 @@ export async function startAgent(
     title,
   )
 
-  const agent = await createAgent(taskId, worktreePath, branchName)
-  agents.set(taskId, agent)
-  return agent
+  try {
+    const agent = await createAgent(taskId, worktreePath, branchName)
+    agents.set(taskId, agent)
+    return agent
+  } catch (err) {
+    // Clean up the worktree if SDK initialization failed
+    try {
+      await removeWorktree(projectPath, worktreePath, branchName)
+    } catch {
+      // best-effort cleanup
+    }
+    throw new AgentError(
+      `Failed to create opencode agent: ${err instanceof Error ? err.message : String(err)}`,
+      "sdk",
+      err,
+    )
+  }
 }
 
 export async function stopAgent(

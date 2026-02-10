@@ -70,7 +70,10 @@ export function TaskView() {
         sessionId: agent.sessionId,
       })
     } catch (err) {
-      // Could not start agent - stay on task view
+      const message = err instanceof Error ? err.message : "Failed to start agent"
+      store.setLastError(message)
+      // Auto-dismiss after 5 seconds
+      setTimeout(() => store.setLastError(null), 5000)
     }
   }, [selectedTask, project])
 
@@ -154,7 +157,8 @@ export function TaskView() {
     onDelete: handleDelete,
     onEdit: handleEdit,
     onMoveTaskRight: handleMoveRight,
-    onToggleHelp: () => store.toggleLogs(),
+    onToggleHelp: () => store.toggleHelp(),
+    onRefresh: () => store.refresh(),
   })
 
   return (
@@ -183,7 +187,7 @@ export function TaskView() {
       <Box paddingX={1}>
         <Text color="gray" dimColor>
           [n] new  [e] edit  [d] delete  [r] move right  [Enter/l] open session
-           [Esc] back  [?] help
+           [R] refresh  [Esc] back  [?] help
         </Text>
       </Box>
     </Box>

@@ -36,9 +36,12 @@ export interface AppState {
   selectedIndex: number
   columnIndex: number
   showLogs: boolean
+  showHelp: boolean
   inputFocused: boolean
   projects: IKanbanProject[]
   tasks: IKanbanTask[]
+  /** Last error message displayed to the user */
+  lastError: string | null
 }
 
 export interface StorageData {

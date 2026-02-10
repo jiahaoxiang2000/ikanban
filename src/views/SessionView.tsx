@@ -560,6 +560,13 @@ export function SessionView() {
         return
       }
 
+      // R: refresh session state
+      if (input === "R") {
+        store.refresh() // refresh persisted data
+        void actions.refresh() // refresh session data from SDK
+        return
+      }
+
       // S: stop agent and clean up
       if (input === "S") {
         void agent.stop()
@@ -714,7 +721,7 @@ export function SessionView() {
         <Text color="gray" dimColor>
           {inputFocused
             ? "[Enter] send  [Esc] unfocus  [Ctrl+C] stop agent"
-            : "[i/Enter] input  [Ctrl+C] stop  [L] logs  [D] diff  [T] todos  [F] fork  [M] done  [S] cleanup  [Esc] back"}
+            : "[i/Enter] input  [Ctrl+C] stop  [L] logs  [D] diff  [T] todos  [F] fork  [M] done  [R] refresh  [S] cleanup  [Esc] back"}
         </Text>
       </Box>
     </Box>

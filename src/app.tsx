@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo } from "react"
 import { Box, Text, useInput, useStdout } from "ink"
 import { LogPanel } from "./components/LogPanel.tsx"
+import { HelpOverlay } from "./components/HelpOverlay.tsx"
 import { store, useStore } from "./state/store.ts"
 import { TASK_COLUMNS, type AppView } from "./state/types.ts"
 import { clampIndex } from "./hooks/useKeyboard.ts"
@@ -27,7 +28,7 @@ function goBack(view: AppView) {
 
 export function App() {
   const { stdout } = useStdout()
-  const { view, projects, selectedIndex, columnIndex, showLogs, inputFocused } =
+  const { view, projects, selectedIndex, columnIndex, showLogs, showHelp, inputFocused, lastError } =
     useStore()
 
   useEffect(() => {
@@ -79,7 +80,7 @@ export function App() {
     }
 
     if (input === "?") {
-      store.toggleLogs()
+      store.toggleHelp()
     }
   })
 
@@ -101,6 +102,18 @@ export function App() {
         <Text color="gray"> {title}</Text>
       </Box>
 
+      {/* Error banner */}
+      {lastError && (
+        <Box paddingX={1} borderStyle="single" borderColor="red">
+          <Text color="red" bold>
+            Error:{" "}
+          </Text>
+          <Text color="red" wrap="truncate">
+            {lastError}
+          </Text>
+        </Box>
+      )}
+
       <Box flexDirection="row" flexGrow={1}>
         <Box flexDirection="column" flexGrow={1}>
           {view.kind === "projects" && <ProjectView />}
@@ -110,6 +123,9 @@ export function App() {
 
         {showLogs && <LogPanel />}
       </Box>
+
+      {/* Help overlay (rendered on top) */}
+      <HelpOverlay />
     </Box>
   )
 }

@@ -14,6 +14,7 @@ interface KeyboardActions {
   onEdit: () => void
   onMoveTaskRight: () => void
   onToggleHelp: () => void
+  onRefresh: () => void
   onQuit?: () => void
 }
 
@@ -50,6 +51,8 @@ export function useKeyboard(actions: KeyboardActions): void {
       actions.onEdit()
     } else if (input === "r") {
       actions.onMoveTaskRight()
+    } else if (input === "R") {
+      actions.onRefresh()
     } else if (input === "?") {
       actions.onToggleHelp()
     } else if (input === "q" && actions.onQuit) {
@@ -108,6 +111,7 @@ export const KEYBOARD_SHORTCUTS = [
   { key: "d", action: "Delete selected item" },
   { key: "e", action: "Edit selected item" },
   { key: "r", action: "Move task to next column" },
+  { key: "R", action: "Refresh state" },
   { key: "q", action: "Quit application" },
   { key: "?", action: "Show keyboard shortcuts" },
 ] as const

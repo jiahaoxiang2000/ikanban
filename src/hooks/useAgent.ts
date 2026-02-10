@@ -153,10 +153,12 @@ export function useAgent(
       }
     } catch (err) {
       if (mountedRef.current) {
+        const message = err instanceof Error ? err.message : "Failed to start agent"
         setPhase("error")
-        setError(
-          err instanceof Error ? err.message : "Failed to start agent",
-        )
+        setError(message)
+        store.setLastError(message)
+        // Auto-dismiss the global error after 5 seconds
+        setTimeout(() => store.setLastError(null), 5000)
       }
     }
   }, [taskId, projectPath, phase])

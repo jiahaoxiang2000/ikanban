@@ -92,7 +92,7 @@
 
 ### Phase 9: Polish
 
-- [ ] Help overlay (`?` key)
-- [ ] Error handling for SDK failures, git worktree errors
-- [ ] Graceful shutdown (cleanup all agent instances on exit)
-- [ ] Refresh (`r` key) to re-fetch project/task/session state
+- [x] Help overlay (`?` key)
+- [x] Error handling for SDK failures, git worktree errors
+- [x] Graceful shutdown (cleanup all agent instances on exit)
+- [x] Refresh (`r` key) to re-fetch project/task/session state

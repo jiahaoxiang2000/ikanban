@@ -23,9 +23,11 @@ function createStore() {
     selectedIndex: 0,
     columnIndex: 0,
     showLogs: false,
+    showHelp: false,
     inputFocused: false,
     projects: persisted.projects,
     tasks: persisted.tasks,
+    lastError: null,
   }
 
   function emit() {
@@ -165,8 +167,23 @@ function createStore() {
     setState({ showLogs: !state.showLogs })
   }
 
+  function toggleHelp() {
+    setState({ showHelp: !state.showHelp })
+  }
+
+  function setLastError(error: string | null) {
+    setState({ lastError: error })
+  }
+
   function setInputFocused(focused: boolean) {
     setState({ inputFocused: focused })
+  }
+
+  /** Re-load persisted data from disk (projects + tasks) */
+  function refresh() {
+    const fresh = loadData()
+    state = { ...state, projects: fresh.projects, tasks: fresh.tasks }
+    emit()
   }
 
   // --- External Store API ---
@@ -197,7 +214,10 @@ function createStore() {
     setSelectedIndex,
     setColumnIndex,
     toggleLogs,
+    toggleHelp,
+    setLastError,
     setInputFocused,
+    refresh,
   }
 }
 

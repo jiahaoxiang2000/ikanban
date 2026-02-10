@@ -3,6 +3,7 @@ import { Box, Text } from "ink"
 import { store, useStore } from "../state/store.ts"
 import { useKeyboard, clampIndex } from "../hooks/useKeyboard.ts"
 import { Input } from "../components/Input.tsx"
+import { gracefulExit } from "../index.tsx"
 
 export function ProjectView() {
   const { projects, selectedIndex, inputFocused } = useStore()
@@ -67,8 +68,9 @@ export function ProjectView() {
     onDelete: handleDelete,
     onEdit: () => {},
     onMoveTaskRight: () => {},
-    onToggleHelp: () => store.toggleLogs(),
-    onQuit: () => process.exit(0),
+    onToggleHelp: () => store.toggleHelp(),
+    onRefresh: () => store.refresh(),
+    onQuit: () => void gracefulExit(0),
   })
 
   return (
@@ -116,7 +118,7 @@ export function ProjectView() {
 
       <Box marginTop={1}>
         <Text color="gray" dimColor>
-          [n] new  [d] delete  [Enter/l] open  [q] quit  [?] help
+          [n] new  [d] delete  [Enter/l] open  [R] refresh  [q] quit  [?] help
         </Text>
       </Box>
     </Box>
