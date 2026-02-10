@@ -71,6 +71,7 @@ export function LogPanel() {
       height="100%"
       justifyContent="center"
       alignItems="center"
+      backgroundColor="black"
     >
       <Box
         flexDirection="column"
@@ -79,6 +80,7 @@ export function LogPanel() {
         borderStyle="double"
         borderColor="yellow"
         paddingX={1}
+        backgroundColor="black"
       >
         <Box justifyContent="center" marginBottom={1}>
           <Text bold color="yellow">

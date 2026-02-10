@@ -82,6 +82,7 @@ export function HelpOverlay() {
       height="100%"
       justifyContent="center"
       alignItems="center"
+      backgroundColor="black"
     >
       <Box
         flexDirection="column"
@@ -90,6 +91,7 @@ export function HelpOverlay() {
         borderColor="cyan"
         paddingX={2}
         paddingY={1}
+        backgroundColor="black"
       >
         <Box justifyContent="center" marginBottom={1}>
           <Text bold color="cyan">
