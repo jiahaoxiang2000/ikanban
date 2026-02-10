@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { createOpencode } from "@opencode-ai/sdk"
 import type { OpencodeClient } from "@opencode-ai/sdk"
 import { useSession, type UseSessionResult } from "./useSession.ts"
 import { store } from "../state/store.ts"
@@ -27,8 +26,8 @@ export interface UseAgentResult {
   client: OpencodeClient | null
   /** Session hook result (state + actions) for the active session */
   session: UseSessionResult
-  /** Start the agent for this task (creates worktree + opencode server + sends initial prompt) */
-  start: (initialPrompt?: string) => Promise<void>
+  /** Start the agent for this task (creates worktree + opencode server) */
+  start: () => Promise<void>
   /** Stop the agent and clean up */
   stop: () => Promise<void>
   /** Send a prompt to the agent's session */
@@ -76,6 +75,8 @@ export function useAgent(
 
   // Track whether the component is still mounted
   const mountedRef = useRef(true)
+  // Track whether the initial prompt has been sent for the current session
+  const initialPromptSentRef = useRef<string | null>(null)
   useEffect(() => {
     mountedRef.current = true
     return () => {
@@ -111,6 +112,7 @@ export function useAgent(
     setDirectory(undefined)
     setError(null)
     setPhase("idle")
+    initialPromptSentRef.current = null
   }, [taskId])
 
   // Wire up the session hook
@@ -125,7 +127,7 @@ export function useAgent(
    * sent to the session immediately after creation (the task's
    * title + description are used by default when called from the UI).
    */
-  const start = useCallback(async (initialPrompt?: string) => {
+  const start = useCallback(async () => {
     if (!taskId || !projectPath) return
     if (phase === "starting" || phase === "ready") return
 
@@ -158,16 +160,6 @@ export function useAgent(
       setSessionId(agent.sessionId)
       setDirectory(agent.worktreePath)
       setPhase("ready")
-
-      // Send the initial prompt if provided
-      const prompt = initialPrompt ?? buildInitialPrompt(task)
-      if (prompt) {
-        await agent.client.session.prompt({
-          path: { id: agent.sessionId },
-          query: { directory: agent.worktreePath },
-          body: { parts: [{ type: "text", text: prompt }] },
-        })
-      }
     } catch (err) {
       if (mountedRef.current) {
         const message = err instanceof Error ? err.message : "Failed to start agent"
@@ -179,6 +171,32 @@ export function useAgent(
       }
     }
   }, [taskId, projectPath, phase])
+
+  // -----------------------------------------------------------------------
+  // Send initial prompt once SSE subscription is ready
+  // -----------------------------------------------------------------------
+
+  useEffect(() => {
+    if (phase !== "ready" || !client || !sessionId || !directory) return
+    if (!session.state.ready) return
+    // Only send once per session
+    if (initialPromptSentRef.current === sessionId) return
+    initialPromptSentRef.current = sessionId
+
+    // If there are already messages (e.g. resuming an existing session), skip
+    if (session.state.messages.length > 0) return
+
+    const appState = store.getState()
+    const task = appState.tasks.find((t) => t.id === taskId)
+    const prompt = buildInitialPrompt(task)
+    if (!prompt) return
+
+    void client.session.prompt({
+      path: { id: sessionId },
+      query: { directory },
+      body: { parts: [{ type: "text", text: prompt }] },
+    })
+  }, [phase, client, sessionId, directory, session.state.ready, session.state.messages.length, taskId])
 
   // -----------------------------------------------------------------------
   // Stop
