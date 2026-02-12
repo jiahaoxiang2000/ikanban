@@ -15,6 +15,7 @@
   "dependencies": {
     "@opencode-ai/sdk": "^1.1.53",
     "ink": "^5",
+    "pino": "^9.9.4",
     "react": "^18"
   },
   "devDependencies": {

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import type { OpencodeClient } from "@opencode-ai/sdk"
 import { useSession, type UseSessionResult } from "./useSession.ts"
 import { store } from "../state/store.ts"
+import { appendRuntimeLog } from "../state/storage.ts"
 import {
   startAgent,
   stopAgent,
@@ -98,6 +99,11 @@ export function useAgent(
 
     const existing = getAgent(taskId)
     if (existing) {
+      appendRuntimeLog("debug", "Hydrating hook from existing agent", {
+        source: "hook.useAgent",
+        taskId,
+        sessionId: existing.sessionId,
+      })
       setClient(existing.client)
       setSessionId(existing.sessionId)
       setDirectory(existing.worktreePath)
@@ -131,6 +137,13 @@ export function useAgent(
     if (!taskId || !projectPath) return
     if (phase === "starting" || phase === "ready") return
 
+    appendRuntimeLog("info", "useAgent.start invoked", {
+      source: "hook.useAgent.start",
+      taskId,
+      projectPath,
+      phase,
+    })
+
     setPhase("starting")
     setError(null)
 
@@ -140,7 +153,10 @@ export function useAgent(
       const task = appState.tasks.find((t) => t.id === taskId)
       const title = task?.title ?? "task"
 
-      const agent = await startAgent(projectPath, taskId, title)
+      const agent = await startAgent(projectPath, taskId, title, {
+        sessionId: task?.sessionId,
+        branchName: task?.branchName,
+      })
 
       if (!mountedRef.current) {
         // Component unmounted while we were starting – clean up
@@ -160,9 +176,21 @@ export function useAgent(
       setSessionId(agent.sessionId)
       setDirectory(agent.worktreePath)
       setPhase("ready")
+      appendRuntimeLog("info", "Agent ready in hook", {
+        source: "hook.useAgent.start",
+        taskId,
+        sessionId: agent.sessionId,
+        directory: agent.worktreePath,
+      })
     } catch (err) {
       if (mountedRef.current) {
         const message = err instanceof Error ? err.message : "Failed to start agent"
+        appendRuntimeLog("error", "useAgent.start failed", {
+          source: "hook.useAgent.start",
+          taskId,
+          message,
+          err,
+        })
         setPhase("error")
         setError(message)
         store.setLastError(message)
@@ -191,6 +219,14 @@ export function useAgent(
     const prompt = buildInitialPrompt(task)
     if (!prompt) return
 
+    appendRuntimeLog("debug", "Sending initial prompt", {
+      source: "hook.useAgent.initialPrompt",
+      taskId,
+      sessionId,
+      directory,
+      promptLength: prompt.length,
+    })
+
     void client.session.prompt({
       path: { id: sessionId },
       query: { directory },
@@ -206,12 +242,23 @@ export function useAgent(
     if (!taskId || !projectPath) return
     if (phase === "idle" || phase === "stopping") return
 
+    appendRuntimeLog("info", "useAgent.stop invoked", {
+      source: "hook.useAgent.stop",
+      taskId,
+      projectPath,
+      phase,
+    })
+
     setPhase("stopping")
 
     try {
       await stopAgent(taskId)
     } catch {
       // best-effort cleanup
+      appendRuntimeLog("warn", "useAgent.stop encountered cleanup error", {
+        source: "hook.useAgent.stop",
+        taskId,
+      })
     }
 
     if (mountedRef.current) {

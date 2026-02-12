@@ -10,6 +10,7 @@ import type {
   Event,
   FileDiff,
 } from "@opencode-ai/sdk"
+import { appendRuntimeLog } from "../state/storage.ts"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -194,6 +195,11 @@ export function useSession(
     const q = directory ? { directory } : undefined
 
     async function load() {
+      appendRuntimeLog("info", "Loading session bootstrap data", {
+        source: "hook.useSession.bootstrap",
+        sessionId,
+        directory,
+      })
       try {
         const [sessionRes, messagesRes, todosRes] = await Promise.all([
           client!.session.get({ path: { id: sessionId! }, query: q }),
@@ -216,9 +222,19 @@ export function useSession(
           todos: todosRes.data ?? [],
           ready: true,
         })
+        appendRuntimeLog("debug", "Session bootstrap loaded", {
+          source: "hook.useSession.bootstrap",
+          sessionId,
+          messageCount: messages.length,
+          todoCount: (todosRes.data ?? []).length,
+        })
       } catch {
         if (!cancelled) {
           patch({ ready: true })
+          appendRuntimeLog("warn", "Session bootstrap load failed", {
+            source: "hook.useSession.bootstrap",
+            sessionId,
+          })
         }
       }
     }
@@ -240,6 +256,11 @@ export function useSession(
     const q = directory ? { directory } : undefined
 
     async function subscribe() {
+      appendRuntimeLog("debug", "Subscribing to session events", {
+        source: "hook.useSession.sse",
+        sessionId,
+        directory,
+      })
       const result = await client!.event.subscribe({ query: q })
       const stream = result.stream
 
@@ -250,6 +271,12 @@ export function useSession(
         }
       } catch {
         // stream closed or network error – ignore if unmounted
+        if (!cancelled) {
+          appendRuntimeLog("warn", "Session event stream closed", {
+            source: "hook.useSession.sse",
+            sessionId,
+          })
+        }
       }
     }
 
@@ -418,11 +445,21 @@ export function useSession(
           // Ignore events we don't handle
           break
       }
+
+      appendRuntimeLog("debug", "Session event received", {
+        source: "hook.useSession.sse",
+        sessionId: sid,
+        eventType: evt.type,
+      })
     }
 
     subscribe()
     return () => {
       cancelled = true
+      appendRuntimeLog("debug", "Session event subscription cancelled", {
+        source: "hook.useSession.sse",
+        sessionId,
+      })
     }
   }, [client, sessionId, directory, patch, upsertMessage, upsertPart])
 
@@ -434,6 +471,12 @@ export function useSession(
     async (text: string) => {
       if (!client || !sessionId) return
       const q = directory ? { directory } : undefined
+      appendRuntimeLog("info", "Sending session prompt", {
+        source: "hook.useSession.sendMessage",
+        sessionId,
+        directory,
+        textLength: text.length,
+      })
       try {
         await client.session.prompt({
           path: { id: sessionId },
@@ -443,6 +486,11 @@ export function useSession(
           },
         })
       } catch (err) {
+        appendRuntimeLog("error", "Failed to send session prompt", {
+          source: "hook.useSession.sendMessage",
+          sessionId,
+          err,
+        })
         patch({
           error: {
             type: "session.error",
@@ -462,6 +510,11 @@ export function useSession(
   const abort = useCallback(async () => {
     if (!client || !sessionId) return
     const q = directory ? { directory } : undefined
+    appendRuntimeLog("info", "Aborting session", {
+      source: "hook.useSession.abort",
+      sessionId,
+      directory,
+    })
     try {
       await client.session.abort({
         path: { id: sessionId },
@@ -469,6 +522,10 @@ export function useSession(
       })
     } catch {
       // abort is best-effort
+      appendRuntimeLog("warn", "Session abort request failed", {
+        source: "hook.useSession.abort",
+        sessionId,
+      })
     }
   }, [client, sessionId, directory])
 
@@ -479,6 +536,12 @@ export function useSession(
     ) => {
       if (!client || !sessionId) return
       const q = directory ? { directory } : undefined
+      appendRuntimeLog("info", "Replying to permission request", {
+        source: "hook.useSession.replyPermission",
+        sessionId,
+        permissionId,
+        response,
+      })
       try {
         await client.postSessionIdPermissionsPermissionId({
           path: { id: sessionId, permissionID: permissionId },
@@ -487,6 +550,12 @@ export function useSession(
         })
         patch({ pendingPermission: null })
       } catch (err) {
+        appendRuntimeLog("error", "Failed to reply to permission request", {
+          source: "hook.useSession.replyPermission",
+          sessionId,
+          permissionId,
+          err,
+        })
         patch({
           error: {
             type: "session.error",
@@ -506,6 +575,11 @@ export function useSession(
   const refresh = useCallback(async () => {
     if (!client || !sessionId) return
     const q = directory ? { directory } : undefined
+    appendRuntimeLog("debug", "Refreshing session state", {
+      source: "hook.useSession.refresh",
+      sessionId,
+      directory,
+    })
     try {
       const [sessionRes, messagesRes, todosRes] = await Promise.all([
         client.session.get({ path: { id: sessionId }, query: q }),
@@ -525,8 +599,18 @@ export function useSession(
         messages,
         todos: todosRes.data ?? [],
       })
+      appendRuntimeLog("debug", "Session state refreshed", {
+        source: "hook.useSession.refresh",
+        sessionId,
+        messageCount: messages.length,
+        todoCount: (todosRes.data ?? []).length,
+      })
     } catch {
       // refresh is best-effort
+      appendRuntimeLog("warn", "Session refresh failed", {
+        source: "hook.useSession.refresh",
+        sessionId,
+      })
     }
   }, [client, sessionId, directory, patch])
 

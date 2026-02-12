@@ -1,5 +1,5 @@
-import { createOpencode } from "@opencode-ai/sdk"
 import type { OpencodeClient } from "@opencode-ai/sdk"
+import { appendRuntimeLog } from "../state/storage.ts"
 
 export interface AgentInstance {
   taskId: string
@@ -8,7 +8,6 @@ export interface AgentInstance {
   branchName: string
   sessionId: string
   client: OpencodeClient
-  server: { url: string; close(): void }
 }
 
 export async function createAgent(
@@ -16,36 +15,79 @@ export async function createAgent(
   projectPath: string,
   worktreePath: string,
   branchName: string,
+  client: OpencodeClient,
+  existingSessionId?: string,
 ): Promise<AgentInstance> {
-  let client: OpencodeClient
-  let server: { url: string; close(): void }
-
-  try {
-    const result = await createOpencode({ port: 0 })
-    client = result.client
-    server = result.server
-  } catch (err) {
-    throw new Error(
-      `Failed to start opencode server: ${err instanceof Error ? err.message : String(err)}`,
-    )
-  }
+  appendRuntimeLog("info", "Creating agent instance", {
+    source: "agent.instance.create",
+    taskId,
+    worktreePath,
+    branchName,
+    existingSessionId,
+  })
 
   let session: { id: string } | undefined
-  try {
-    const result = await client.session.create({
-      body: {},
-      query: { directory: worktreePath },
+  const query = { directory: worktreePath }
+
+  if (existingSessionId) {
+    appendRuntimeLog("debug", "Checking existing session id", {
+      source: "agent.instance.create",
+      taskId,
+      existingSessionId,
     })
-    session = result.data ?? undefined
-  } catch (err) {
-    server.close()
-    throw new Error(
-      `Failed to create session for task ${taskId}: ${err instanceof Error ? err.message : String(err)}`,
-    )
+    try {
+      const existing = await client.session.get({
+        path: { id: existingSessionId },
+        query,
+      })
+      if (existing.data) {
+        session = { id: existing.data.id }
+        appendRuntimeLog("info", "Reused existing session", {
+          source: "agent.instance.create",
+          taskId,
+          sessionId: existing.data.id,
+        })
+      }
+    } catch {
+      // stale session id; fall through and create a new one
+      appendRuntimeLog("warn", "Stored session id is stale; creating new session", {
+        source: "agent.instance.create",
+        taskId,
+        existingSessionId,
+      })
+    }
   }
 
   if (!session) {
-    server.close()
+    appendRuntimeLog("debug", "Creating new session for agent", {
+      source: "agent.instance.create",
+      taskId,
+      worktreePath,
+    })
+    try {
+      const result = await client.session.create({
+        body: {},
+        query,
+      })
+      session = result.data ?? undefined
+      appendRuntimeLog("info", "Created new session", {
+        source: "agent.instance.create",
+        taskId,
+        sessionId: session?.id,
+      })
+    } catch (err) {
+      appendRuntimeLog("error", "Failed to create session", {
+        source: "agent.instance.create",
+        taskId,
+        err,
+      })
+      throw new Error(
+        `Failed to create session for task ${taskId}: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+  }
+
+  if (!session) {
     throw new Error(`Failed to create session for task ${taskId}: no session returned`)
   }
 
@@ -56,18 +98,32 @@ export async function createAgent(
     branchName,
     sessionId: session.id,
     client,
-    server,
   }
 }
 
 export async function destroyAgent(agent: AgentInstance): Promise<void> {
+  appendRuntimeLog("info", "Destroying agent instance", {
+    source: "agent.instance.destroy",
+    taskId: agent.taskId,
+    sessionId: agent.sessionId,
+    worktreePath: agent.worktreePath,
+  })
   try {
     await agent.client.session.abort({
       path: { id: agent.sessionId },
       query: { directory: agent.worktreePath },
     })
+    appendRuntimeLog("debug", "Abort session request sent", {
+      source: "agent.instance.destroy",
+      taskId: agent.taskId,
+      sessionId: agent.sessionId,
+    })
   } catch {
     // session may already be finished
+    appendRuntimeLog("debug", "Abort skipped; session already finished", {
+      source: "agent.instance.destroy",
+      taskId: agent.taskId,
+      sessionId: agent.sessionId,
+    })
   }
-  agent.server.close()
 }
