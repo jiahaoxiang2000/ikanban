@@ -36,6 +36,7 @@ export type SendInitialPromptInput = {
   sessionID: string;
   prompt: string;
   worktreeDirectory?: string;
+  agent?: string;
   model?: {
     providerID: string;
     modelID: string;
@@ -46,6 +47,7 @@ export type SendFollowUpPromptInput = {
   sessionID: string;
   prompt: string;
   worktreeDirectory?: string;
+  agent?: string;
   model?: {
     providerID: string;
     modelID: string;
@@ -56,6 +58,11 @@ export type PromptSubmission = {
   sessionID: string;
   prompt: string;
   submittedAt: number;
+};
+
+export type PromptExecutionResult = {
+  submission: PromptSubmission;
+  messages: ConversationMessageMeta[];
 };
 
 export type ListConversationMessagesInput = {
@@ -129,6 +136,81 @@ export class ConversationManager {
     return this.sendPrompt(input, "Failed to send initial prompt");
   }
 
+  async sendInitialPromptAndAwaitMessages(
+    input: SendInitialPromptInput & { timeoutMs?: number },
+  ): Promise<PromptExecutionResult> {
+    const sessionID = normalizeSessionID(input.sessionID);
+    const prompt = normalizePrompt(input.prompt);
+    const worktreeDirectory = this.resolveDirectoryForSession(sessionID, input.worktreeDirectory);
+    const client = await this.runtime.getClient(worktreeDirectory);
+    const timeoutMs = normalizeOptionalTimeout(input.timeoutMs, 45_000);
+    const resolvedModel = await this.resolvePromptModel(client, worktreeDirectory, input.model);
+    const resolvedAgent = input.agent?.trim() || "build";
+
+    const subscribeResult = await client.event.subscribe({
+      directory: worktreeDirectory,
+    });
+    const eventStream = extractEventStream(subscribeResult);
+    const iterator = eventStream[Symbol.asyncIterator]();
+
+    const promptResponse = await client.session.promptAsync({
+      sessionID,
+      parts: [{ type: "text", text: prompt }],
+      agent: resolvedAgent,
+      model: resolvedModel,
+    });
+
+    if (promptResponse.error) {
+      throw new Error(`Failed to send initial prompt: ${formatUnknownError(promptResponse.error)}`);
+    }
+
+    const submittedAt = Date.now();
+    const existing = this.sessionsByID.get(sessionID);
+    if (existing) {
+      this.sessionsByID.set(sessionID, {
+        ...existing,
+        updatedAt: submittedAt,
+        lastMessageAt: submittedAt,
+      });
+    }
+
+    try {
+      const idleResult = await waitForSessionIdle(iterator, sessionID, timeoutMs);
+      if (idleResult.errorMessage) {
+        throw new Error(idleResult.errorMessage);
+      }
+
+      const idleReached = idleResult.idle;
+      if (!idleReached) {
+        throw new Error(
+          `No assistant response received within ${timeoutMs}ms for session ${sessionID}.`,
+        );
+      }
+    } finally {
+      await iterator.return?.();
+    }
+
+    const messages = await this.listConversationMessages({
+      sessionID,
+      worktreeDirectory,
+    });
+    const relevantMessages = messages.filter((message) => message.createdAt >= submittedAt);
+    const hasAssistantMessage = relevantMessages.some((message) => message.role === "assistant");
+
+    if (!hasAssistantMessage) {
+      throw new Error(`No assistant response received within ${timeoutMs}ms for session ${sessionID}.`);
+    }
+
+    return {
+      submission: {
+        sessionID,
+        prompt,
+        submittedAt,
+      },
+      messages: relevantMessages,
+    };
+  }
+
   async sendFollowUpPrompt(input: SendFollowUpPromptInput): Promise<PromptSubmission> {
     return this.sendPrompt(input, "Failed to send follow-up prompt");
   }
@@ -196,12 +278,15 @@ export class ConversationManager {
     const prompt = normalizePrompt(input.prompt);
     const worktreeDirectory = this.resolveDirectoryForSession(sessionID, input.worktreeDirectory);
     const client = await this.runtime.getClient(worktreeDirectory);
+    const resolvedModel = await this.resolvePromptModel(client, worktreeDirectory, input.model);
+    const resolvedAgent = input.agent?.trim() || "build";
 
     await readDataOrThrow<unknown>(
       client.session.prompt({
         sessionID,
         parts: [{ type: "text", text: prompt }],
-        model: input.model,
+        agent: resolvedAgent,
+        model: resolvedModel,
       }),
       failureMessage,
     );
@@ -238,13 +323,76 @@ export class ConversationManager {
 
     throw new Error(`Worktree directory is required for session ${sessionID}.`);
   }
+
+  private async resolvePromptModel(
+    client: Awaited<ReturnType<RuntimeClientProvider["getClient"]>>,
+    directory: string,
+    explicitModel: SendInitialPromptInput["model"] | undefined,
+  ): Promise<SendInitialPromptInput["model"] | undefined> {
+    if (explicitModel) {
+      return explicitModel;
+    }
+
+    const providersResponse = await readDataOrThrow<
+      {
+        providers?: Array<{
+          id?: string;
+          models?: Record<string, unknown>;
+        }>;
+        default?: Record<string, string>;
+      }
+    >(
+      client.config.providers({ directory }),
+      "Failed to resolve default model",
+    );
+
+    const providers = providersResponse.providers ?? [];
+    const defaultByProvider = providersResponse.default ?? {};
+    const preferredProviders = ["openai", "anthropic", "google", "opencode"];
+    const preferredOrder = [
+      ...preferredProviders,
+      ...Object.keys(defaultByProvider).filter((providerID) => !preferredProviders.includes(providerID)),
+    ];
+
+    for (const providerID of preferredOrder) {
+      const modelID = defaultByProvider[providerID];
+      if (!modelID) {
+        continue;
+      }
+
+      const provider = providers.find((candidate) => candidate.id === providerID);
+      if (!provider?.models || !(modelID in provider.models)) {
+        continue;
+      }
+
+      return {
+        providerID,
+        modelID,
+      };
+    }
+
+    return undefined;
+  }
 }
 
 function normalizeMessageLike(raw: unknown, sessionID: string, index: number): ConversationMessageLike {
   const message = asRecord(raw);
-  const id = typeof message?.id === "string" && message.id.trim() ? message.id : `${sessionID}:${index}`;
-  const role = typeof message?.role === "string" ? message.role : "assistant";
-  const createdAt = normalizeOptionalTimestamp(message?.createdAt, Date.now());
+  const info = asRecord(message?.info);
+  const time = asRecord(info?.time);
+
+  const id =
+    typeof info?.id === "string" && info.id.trim()
+      ? info.id
+      : typeof message?.id === "string" && message.id.trim()
+        ? message.id
+        : `${sessionID}:${index}`;
+  const role =
+    typeof info?.role === "string"
+      ? info.role
+      : typeof message?.role === "string"
+        ? message.role
+        : "assistant";
+  const createdAt = normalizeOptionalTimestamp(time?.created ?? message?.createdAt, Date.now());
   const parts = normalizeMessageParts(message?.parts);
 
   return {
@@ -463,4 +611,129 @@ function formatUnknownError(error: unknown): string {
   }
 
   return "Unknown SDK error";
+}
+
+function normalizeOptionalTimeout(timeoutMs: number | undefined, fallback: number): number {
+  if (timeoutMs === undefined) {
+    return fallback;
+  }
+
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Error("Timeout must be a positive finite number.");
+  }
+
+  return Math.floor(timeoutMs);
+}
+
+function extractEventStream(subscribeResult: unknown): AsyncIterable<unknown> {
+  const resultRecord = asRecord(subscribeResult);
+  const streamCandidate = resultRecord?.stream;
+
+  if (
+    streamCandidate &&
+    typeof streamCandidate === "object" &&
+    typeof (streamCandidate as AsyncIterable<unknown>)[Symbol.asyncIterator] === "function"
+  ) {
+    return streamCandidate as AsyncIterable<unknown>;
+  }
+
+  throw new Error("Failed to subscribe to conversation events: missing async event stream.");
+}
+
+async function waitForSessionIdle(
+  iterator: AsyncIterator<unknown>,
+  sessionID: string,
+  timeoutMs: number,
+): Promise<{ idle: boolean; errorMessage?: string }> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const remainingMs = Math.max(1, deadline - Date.now());
+    const next = await nextEventWithTimeout(iterator, remainingMs);
+
+    if (!next || next.done) {
+      return { idle: false };
+    }
+
+    const normalizedEvent = normalizeEvent(next.value);
+    if (!normalizedEvent) {
+      continue;
+    }
+
+    const properties = asRecord(normalizedEvent.properties);
+    if (properties?.sessionID !== sessionID) {
+      continue;
+    }
+
+    if (normalizedEvent.type === "session.idle") {
+      return { idle: true };
+    }
+
+    if (normalizedEvent.type === "session.status") {
+      const status = asRecord(properties.status);
+      if (status?.type === "idle") {
+        return { idle: true };
+      }
+      continue;
+    }
+
+    if (normalizedEvent.type === "session.error") {
+      const errorLike = asRecord(properties.error);
+      const data = asRecord(errorLike?.data);
+      const message =
+        (typeof data?.message === "string" && data.message) ||
+        (typeof errorLike?.name === "string" && errorLike.name) ||
+        "Session execution failed.";
+      return { idle: false, errorMessage: message };
+    }
+  }
+
+  return { idle: false };
+}
+
+function normalizeEvent(value: unknown): { type: string; properties?: unknown } | undefined {
+  const direct = asRecord(value);
+  if (!direct) {
+    return undefined;
+  }
+
+  if (typeof direct.type === "string") {
+    return {
+      type: direct.type,
+      properties: direct.properties,
+    };
+  }
+
+  const payload = asRecord(direct.payload);
+  if (!payload || typeof payload.type !== "string") {
+    return undefined;
+  }
+
+  return {
+    type: payload.type,
+    properties: payload.properties,
+  };
+}
+
+async function nextEventWithTimeout(
+  iterator: AsyncIterator<unknown>,
+  timeoutMs: number,
+): Promise<IteratorResult<unknown> | undefined> {
+  const timeoutValue = Symbol("timeout");
+  const result = await Promise.race([
+    iterator.next(),
+    sleep(timeoutMs).then(() => timeoutValue),
+  ]);
+
+  if (result === timeoutValue) {
+    return undefined;
+  }
+
+  return result as IteratorResult<unknown>;
+}
+
+function sleep(durationMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, durationMs);
+  });
 }

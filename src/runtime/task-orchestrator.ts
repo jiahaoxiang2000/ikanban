@@ -1,4 +1,5 @@
 import type { ConversationSessionMeta } from "../domain/conversation";
+import type { ConversationMessageMeta } from "../domain/conversation";
 import {
   assertTaskRuntimeInvariants,
   assertTaskStateTransition,
@@ -31,7 +32,7 @@ type WorktreeManagerLike = Pick<
 
 type ConversationManagerLike = Pick<
   ConversationManager,
-  "createTaskSession" | "sendInitialPrompt" | "getTaskSessionID"
+  "createTaskSession" | "sendInitialPromptAndAwaitMessages" | "getTaskSessionID"
 >;
 
 export type TaskOrchestratorOptions = {
@@ -106,6 +107,12 @@ export type TaskOrchestratorEvent =
       type: "task.prompt.submitted";
       taskId: string;
       prompt: PromptSubmission;
+    }
+  | {
+      type: "task.session.message.received";
+      taskId: string;
+      sessionID: string;
+      message: ConversationMessageMeta;
     }
   | {
       type: "task.cleanup.completed";
@@ -305,17 +312,27 @@ export class TaskOrchestrator {
         sessionID: createdSession.sessionID,
       });
 
-      promptSubmission = await this.conversationManager.sendInitialPrompt({
+      const promptExecution = await this.conversationManager.sendInitialPromptAndAwaitMessages({
         sessionID: createdSession.sessionID,
         prompt: entry.input.initialPrompt,
         worktreeDirectory: createdWorktree.directory,
         model: entry.input.model,
       });
+      promptSubmission = promptExecution.submission;
       this.emit({
         type: "task.prompt.submitted",
         taskId,
         prompt: promptSubmission,
       });
+
+      for (const message of promptExecution.messages) {
+        this.emit({
+          type: "task.session.message.received",
+          taskId,
+          sessionID: createdSession.sessionID,
+          message,
+        });
+      }
 
       runtime = this.transitionTask(taskId, "completed");
 
