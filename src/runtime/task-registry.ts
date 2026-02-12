@@ -36,6 +36,22 @@ export class TaskRegistry {
     await this.persist();
   }
 
+  async removeTask(taskId: string): Promise<boolean> {
+    await this.ensureLoaded();
+    const normalizedTaskId = taskId.trim();
+    if (!normalizedTaskId) {
+      throw new Error("Task id is required.");
+    }
+
+    const removed = this.tasksById.delete(normalizedTaskId);
+    if (!removed) {
+      return false;
+    }
+
+    await this.persist();
+    return true;
+  }
+
   private listTaskSnapshot(): TaskRuntime[] {
     return [...this.tasksById.values()].sort((left, right) => {
       if (left.createdAt !== right.createdAt) {

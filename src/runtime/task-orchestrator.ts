@@ -25,7 +25,7 @@ import { resolveCleanupPolicy } from "./worktree-manager";
 import { noopRuntimeLogger, toStructuredError, type RuntimeLogger } from "./runtime-logger";
 
 type ProjectRegistryLike = Pick<ProjectRegistry, "getProject" | "getActiveProject">;
-type TaskRegistryLike = Pick<TaskRegistry, "listTasks" | "upsertTask">;
+type TaskRegistryLike = Pick<TaskRegistry, "listTasks" | "upsertTask" | "removeTask">;
 
 type WorktreeManagerLike = Pick<
   WorktreeManager,
@@ -223,6 +223,42 @@ export class TaskOrchestrator {
 
       this.schedule();
     });
+  }
+
+  async deleteTask(taskId: string): Promise<boolean> {
+    await this.ensureInitialized();
+
+    const normalizedTaskId = normalizeId(taskId, "Task id");
+    if (this.runningTaskIds.has(normalizedTaskId)) {
+      throw new Error(`Task ${normalizedTaskId} is running and cannot be deleted.`);
+    }
+
+    const queueIndex = this.taskQueue.findIndex((entry) => entry.input.taskId === normalizedTaskId);
+    if (queueIndex >= 0) {
+      const [queued] = this.taskQueue.splice(queueIndex, 1);
+      queued?.reject(new Error(`Task ${normalizedTaskId} was deleted before execution.`));
+    }
+
+    const task = this.tasksById.get(normalizedTaskId);
+    if (!task) {
+      return false;
+    }
+
+    if (task.worktreeDirectory) {
+      const project = await this.projectRegistry.getProject(task.projectId);
+      if (project) {
+        await this.worktreeManager.cleanupTaskWorktree({
+          taskId: normalizedTaskId,
+          projectDirectory: project.rootDirectory,
+          worktreeDirectory: task.worktreeDirectory,
+          policy: "remove",
+        });
+      }
+    }
+
+    this.tasksById.delete(normalizedTaskId);
+    this.removePersistedTask(normalizedTaskId);
+    return true;
   }
 
   getTask(taskId: string): TaskRuntime | undefined {
@@ -607,6 +643,24 @@ export class TaskOrchestrator {
         context: {
           taskId: task.taskId,
           state: task.state,
+        },
+        error: toStructuredError(error),
+      });
+    });
+  }
+
+  private removePersistedTask(taskId: string): void {
+    if (!this.taskRegistry) {
+      return;
+    }
+
+    void this.taskRegistry.removeTask(taskId).catch((error) => {
+      this.logger.log({
+        level: "error",
+        source: "task-orchestrator.persist",
+        message: "Failed to remove persisted task.",
+        context: {
+          taskId,
         },
         error: toStructuredError(error),
       });

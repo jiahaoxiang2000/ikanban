@@ -9,11 +9,14 @@ import { ConversationManager } from "./runtime/conversation-manager";
 import { RuntimeEventBus } from "./runtime/event-bus";
 import { OpenCodeRuntime } from "./runtime/opencode-runtime";
 import { ProjectRegistry } from "./runtime/project-registry";
+import type { RuntimeLogger, RuntimeLogRecord } from "./runtime/runtime-logger";
 import { TaskRegistry } from "./runtime/task-registry";
 import { TaskOrchestrator } from "./runtime/task-orchestrator";
 import { WorktreeManager } from "./runtime/worktree-manager";
 
-const runtime = new OpenCodeRuntime();
+const eventBus = new RuntimeEventBus();
+const logger = createEventBusLogger(eventBus);
+const runtime = new OpenCodeRuntime({ logger });
 const projectRegistry = new ProjectRegistry({
   stateFilePath: resolve(join(homedir(), ".ikanban", "projects.json")),
 });
@@ -27,8 +30,9 @@ const orchestrator = new TaskOrchestrator({
   taskRegistry,
   worktreeManager,
   conversationManager,
+}, {
+  logger,
 });
-const eventBus = new RuntimeEventBus();
 
 render(
   <App
@@ -42,3 +46,20 @@ render(
     defaultProjectDirectory={process.cwd()}
   />,
 );
+
+function createEventBusLogger(eventBus: RuntimeEventBus): RuntimeLogger {
+  return {
+    log(record: RuntimeLogRecord): void {
+      eventBus.emit("log.appended", {
+        level: record.level,
+        message: record.message,
+        source: record.source,
+        eventType: "runtime.log",
+        raw: {
+          context: record.context,
+          error: record.error,
+        },
+      });
+    },
+  };
+}

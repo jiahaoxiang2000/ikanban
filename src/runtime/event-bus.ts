@@ -79,6 +79,8 @@ export type RuntimeEventMap = {
     taskId?: string;
     projectId?: string;
     source?: string;
+    eventType?: string;
+    raw?: unknown;
   };
 };
 
@@ -114,6 +116,8 @@ export type RuntimeLogEntry = {
   taskId?: string;
   projectId?: string;
   source: string;
+  eventType?: string;
+  raw?: unknown;
 };
 
 type ListenerDisposer = () => void;
@@ -259,6 +263,8 @@ function toLogEntry(event: RuntimeEventEnvelope): RuntimeLogEntry {
       taskId: payload.taskId,
       projectId: payload.projectId,
       source: payload.source ?? "runtime",
+      eventType: payload.eventType,
+      raw: payload.raw,
     };
   }
 
@@ -272,6 +278,8 @@ function toLogEntry(event: RuntimeEventEnvelope): RuntimeLogEntry {
     taskId: (lifecycleEvent.payload as { taskId?: string }).taskId,
     projectId: (lifecycleEvent.payload as { projectId?: string }).projectId,
     source: "event-bus",
+    eventType: lifecycleEvent.type,
+    raw: lifecycleEvent.payload,
   };
 }
 

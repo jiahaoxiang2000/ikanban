@@ -14,6 +14,7 @@ export function TaskBoardView({ tasks, selectedTaskIndex }: TaskBoardViewProps) 
 
   return (
     <>
+      <Text color="gray">Press d to delete selected task and clean worktree.</Text>
       {tasks.map((task, index) => {
         return (
           <Text key={task.taskId} color={index === selectedTaskIndex ? "green" : stateColor(task.state)}>

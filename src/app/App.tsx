@@ -1,6 +1,6 @@
 import { basename, resolve } from "node:path";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Box, Text, useApp, useInput, useStdoutDimensions } from "ink";
+import { Box, Text, useApp, useInput, useStdout } from "ink";
 
 import type { ProjectRef } from "../domain/project";
 import type { TaskRuntime } from "../domain/task";
@@ -10,6 +10,7 @@ import { RuntimeEventBus } from "../runtime/event-bus";
 import { OpenCodeRuntime } from "../runtime/opencode-runtime";
 import { TaskOrchestrator, type TaskOrchestratorEvent } from "../runtime/task-orchestrator";
 import { WorktreeManager } from "../runtime/worktree-manager";
+import { LogView, type LogViewLevel } from "./views/log-view";
 import { ProjectSelectorView } from "./views/project-selector-view";
 import { TaskBoardView } from "./views/task-board-view";
 import { nextRoute, ROUTE_DESCRIPTORS, type AppRoute } from "./routes";
@@ -44,10 +45,12 @@ type AppProps = {
 };
 
 const MAX_LOG_ENTRIES = 200;
+const LOG_SCROLL_STEP = 1;
+const LOG_SCROLL_PAGE = 8;
 
 export function App({ services, defaultProjectDirectory, initialRoute = "project-selector" }: AppProps) {
   const { exit } = useApp();
-  const [terminalWidth, terminalHeight] = useStdoutDimensions();
+  const { stdout } = useStdout();
   const [loading, setLoading] = useState(true);
   const [busyMessage, setBusyMessage] = useState<string>();
   const [errorMessage, setErrorMessage] = useState<string>();
@@ -63,6 +66,9 @@ export function App({ services, defaultProjectDirectory, initialRoute = "project
   const [newProjectPathInput, setNewProjectPathInput] = useState<string>();
   const [newTaskPromptInput, setNewTaskPromptInput] = useState<string>();
   const [promptByTaskID, setPromptByTaskID] = useState<Record<string, string>>({});
+  const [logViewLevel, setLogViewLevel] = useState<LogViewLevel>("info");
+  const [isLogViewOpen, setIsLogViewOpen] = useState(false);
+  const [logScrollOffset, setLogScrollOffset] = useState(0);
 
   const pushBanner = useCallback((tone: BannerTone, message: string) => {
     setStatusBanner({
@@ -108,11 +114,11 @@ export function App({ services, defaultProjectDirectory, initialRoute = "project
 
   const taskLogs = useMemo(() => {
     if (!selectedTask) {
-      return logs.slice(-10);
+      return logs;
     }
 
     const scoped = logs.filter((entry) => !entry.taskId || entry.taskId === selectedTask.taskId);
-    return scoped.slice(-10);
+    return scoped;
   }, [logs, selectedTask]);
 
   const taskMessages = useMemo(() => {
@@ -353,6 +359,84 @@ export function App({ services, defaultProjectDirectory, initialRoute = "project
     pushBanner("info", "Enter the first task prompt and press Enter to run.");
   }, [activeProject, pushBanner]);
 
+  const toggleLogViewLevel = useCallback(() => {
+    setLogViewLevel((current) => {
+      const next = current === "info" ? "debug" : "info";
+      pushBanner("info", `Log view level set to ${next}.`);
+      return next;
+    });
+  }, [pushBanner]);
+
+  const toggleLogView = useCallback(() => {
+    setIsLogViewOpen((current) => {
+      const next = !current;
+      pushBanner("info", next ? "Log panel opened." : "Log panel closed.");
+      return next;
+    });
+  }, [pushBanner]);
+
+  const scrollLogsUp = useCallback((step = LOG_SCROLL_STEP) => {
+    setLogScrollOffset((current) => Math.min(current + Math.max(1, step), Math.max(taskLogs.length - 1, 0)));
+  }, [taskLogs.length]);
+
+  const scrollLogsDown = useCallback((step = LOG_SCROLL_STEP) => {
+    setLogScrollOffset((current) => Math.max(0, current - Math.max(1, step)));
+  }, []);
+
+  const scrollLogsToOldest = useCallback(() => {
+    setLogScrollOffset(Math.max(taskLogs.length - 1, 0));
+  }, [taskLogs.length]);
+
+  const scrollLogsToLatest = useCallback(() => {
+    setLogScrollOffset(0);
+  }, []);
+
+  const deleteSelectedTask = useCallback(async () => {
+    const task = selectedTask;
+    if (!task) {
+      pushBanner("warn", "No task selected.");
+      return;
+    }
+
+    setBusyMessage(`Deleting ${task.taskId}...`);
+    try {
+      const deleted = await services.orchestrator.deleteTask(task.taskId);
+      if (!deleted) {
+        pushBanner("warn", `Task ${task.taskId} was already removed.`);
+        return;
+      }
+
+      setSessionMessagesByTaskID((current) => {
+        if (!current[task.taskId]) {
+          return current;
+        }
+
+        const next = { ...current };
+        delete next[task.taskId];
+        return next;
+      });
+      setPromptByTaskID((current) => {
+        if (!current[task.taskId]) {
+          return current;
+        }
+
+        const next = { ...current };
+        delete next[task.taskId];
+        return next;
+      });
+      setTasks(services.orchestrator.listTasks());
+      pushBanner("success", `Deleted task ${task.taskId} and cleaned its worktree.`);
+    } catch (error) {
+      pushBanner("error", toErrorMessage(error));
+    } finally {
+      setBusyMessage(undefined);
+    }
+  }, [selectedTask, pushBanner, services.orchestrator]);
+
+  useEffect(() => {
+    setLogScrollOffset(0);
+  }, [selectedTask?.taskId]);
+
   useInput((input, key) => {
     const isInTextInputMode = newProjectPathInput !== undefined || newTaskPromptInput !== undefined;
     const wantsMoveUp = (key.upArrow || input === "k") && !key.ctrl && !key.meta;
@@ -372,8 +456,52 @@ export function App({ services, defaultProjectDirectory, initialRoute = "project
       return;
     }
 
-    if (key.tab) {
+    if (!isInTextInputMode && (input === "l" || input === "L")) {
+      toggleLogView();
+      return;
+    }
+
+    if (key.tab && !isLogViewOpen) {
       setRoute((current) => nextRoute(current));
+      return;
+    }
+
+    if (isLogViewOpen) {
+      if (input === "u") {
+        scrollLogsUp(LOG_SCROLL_PAGE);
+        return;
+      }
+
+      if (input === "d") {
+        scrollLogsDown(LOG_SCROLL_PAGE);
+        return;
+      }
+
+      if (input === "k") {
+        scrollLogsUp(LOG_SCROLL_STEP);
+        return;
+      }
+
+      if (input === "j") {
+        scrollLogsDown(LOG_SCROLL_STEP);
+        return;
+      }
+
+      if (input === "g") {
+        scrollLogsToOldest();
+        return;
+      }
+
+      if (input === "G") {
+        scrollLogsToLatest();
+        return;
+      }
+
+      if (input === "v" || input === "V") {
+        toggleLogViewLevel();
+        return;
+      }
+
       return;
     }
 
@@ -476,10 +604,16 @@ export function App({ services, defaultProjectDirectory, initialRoute = "project
       return;
     }
 
+    if (input === "d") {
+      void deleteSelectedTask();
+      return;
+    }
+
   });
 
-  const frameWidth = Math.max(terminalWidth, 40);
-  const frameHeight = Math.max(terminalHeight, 16);
+  const frameWidth = Math.max(stdout.columns ?? 40, 40);
+  const frameHeight = Math.max(stdout.rows ?? 16, 16);
+  const logVisibleRows = Math.max(isLogViewOpen ? frameHeight - 8 : Math.floor(frameHeight / 3), 6);
 
   return (
     <Box flexDirection="column" width={frameWidth} height={frameHeight} paddingX={1}>
@@ -506,71 +640,69 @@ export function App({ services, defaultProjectDirectory, initialRoute = "project
       <Box flexDirection="column" flexGrow={1}>
         {loading ? (
           <Text color="yellow">Loading runtime and project state...</Text>
-        ) : (
-          <Box flexDirection="row" columnGap={4} flexGrow={1}>
-            <Box flexDirection="column" width={44} flexShrink={0}>
-              <Text color="magentaBright">
-                {route === "project-selector" ? "Projects" : `Tasks (${activeProject?.name ?? "none"})`}
-              </Text>
-              <Box marginTop={1} flexDirection="column">
-                {route === "project-selector" ? (
-                  <ProjectSelectorView
-                    projects={projects}
-                    selectedProjectIndex={selectedProjectIndex}
-                  />
-                ) : (
-                  <TaskBoardView
-                    tasks={tasksForActiveProject}
-                    selectedTaskIndex={selectedTaskIndex}
-                  />
-                )}
-              </Box>
-            </Box>
-
-            <Box flexDirection="column" flexGrow={1}>
-              <Text color="magentaBright">Details and Logs</Text>
-              <Box marginTop={1} flexDirection="column">
-                {selectedTask ? (
-                  <>
-                    <Text>Task: {selectedTask.taskId}</Text>
-                    <Text>State: {selectedTask.state}</Text>
-                    <Text>Project: {selectedTask.projectId}</Text>
-                    <Text>Session: {selectedTask.sessionID ?? "-"}</Text>
-                    <Text>Worktree: {selectedTask.worktreeDirectory ?? "-"}</Text>
-                    <Text>Error: {selectedTask.error ?? "-"}</Text>
-                  </>
-                ) : (
-                  <Text color="yellow">Select a task to inspect details.</Text>
-                )}
-              </Box>
-
-              <Box marginTop={1} flexDirection="column">
-                <Text color="cyan">Conversation</Text>
-                {taskMessages.length > 0 ? (
-                  taskMessages.slice(-6).map((message) => (
-                    <Text key={message.messageID} color={message.role === "assistant" ? "green" : undefined}>
-                      [{message.role}] {truncate(message.preview || "(no text preview)", 120)}
-                    </Text>
-                  ))
-                ) : (
-                  <Text color="yellow">No conversation messages yet.</Text>
-                )}
-              </Box>
-
-              <Box marginTop={1} flexDirection="column">
-                <Text color="cyan">Recent logs</Text>
-                {taskLogs.length > 0 ? (
-                  taskLogs.map((entry) => (
-                    <Text key={`${entry.sequence}:${entry.source}`} color={entry.level === "error" ? "red" : entry.level === "warn" ? "yellow" : undefined}>
-                      [{entry.level}] {truncate(entry.message, 120)}
-                    </Text>
-                  ))
-                ) : (
-                  <Text color="yellow">No log entries yet.</Text>
-                )}
-              </Box>
-            </Box>
+        ) : isLogViewOpen ? (
+          <Box flexDirection="column" flexGrow={1}>
+            <LogView
+              entries={taskLogs}
+              level={logViewLevel}
+              scrollOffset={logScrollOffset}
+              visibleRows={logVisibleRows}
+            />
           </Box>
+        ) : (
+          <>
+            <Box flexDirection="row" columnGap={4} flexGrow={1}>
+              <Box flexDirection="column" width={44} flexShrink={0}>
+                <Text color="magentaBright">
+                  {route === "project-selector" ? "Projects" : `Tasks (${activeProject?.name ?? "none"})`}
+                </Text>
+                <Box marginTop={1} flexDirection="column">
+                  {route === "project-selector" ? (
+                    <ProjectSelectorView
+                      projects={projects}
+                      selectedProjectIndex={selectedProjectIndex}
+                    />
+                  ) : (
+                    <TaskBoardView
+                      tasks={tasksForActiveProject}
+                      selectedTaskIndex={selectedTaskIndex}
+                    />
+                  )}
+                </Box>
+              </Box>
+
+              <Box flexDirection="column" flexGrow={1}>
+                <Text color="magentaBright">Details</Text>
+                <Box marginTop={1} flexDirection="column">
+                  {selectedTask ? (
+                    <>
+                      <Text>Task: {selectedTask.taskId}</Text>
+                      <Text>State: {selectedTask.state}</Text>
+                      <Text>Project: {selectedTask.projectId}</Text>
+                      <Text>Session: {selectedTask.sessionID ?? "-"}</Text>
+                      <Text>Worktree: {selectedTask.worktreeDirectory ?? "-"}</Text>
+                      <Text>Error: {selectedTask.error ?? "-"}</Text>
+                    </>
+                  ) : (
+                    <Text color="yellow">Select a task to inspect details.</Text>
+                  )}
+                </Box>
+
+                <Box marginTop={1} flexDirection="column">
+                  <Text color="cyan">Conversation</Text>
+                  {taskMessages.length > 0 ? (
+                    taskMessages.slice(-6).map((message) => (
+                      <Text key={message.messageID} color={message.role === "assistant" ? "green" : undefined}>
+                        [{message.role}] {truncate(message.preview || "(no text preview)", 120)}
+                      </Text>
+                    ))
+                  ) : (
+                    <Text color="yellow">No conversation messages yet.</Text>
+                  )}
+                </Box>
+              </Box>
+            </Box>
+          </>
         )}
       </Box>
 
@@ -591,6 +723,8 @@ export function App({ services, defaultProjectDirectory, initialRoute = "project
           {keyboardHints(route, {
             isCreatingProject: newProjectPathInput !== undefined,
             isCreatingTask: newTaskPromptInput !== undefined,
+            logViewLevel,
+            isLogViewOpen,
           })}
         </Text>
       </Box>
@@ -606,17 +740,21 @@ export function App({ services, defaultProjectDirectory, initialRoute = "project
 
 function keyboardHints(
   route: AppRoute,
-  options: { isCreatingProject: boolean; isCreatingTask: boolean },
+  options: { isCreatingProject: boolean; isCreatingTask: boolean; logViewLevel: LogViewLevel; isLogViewOpen: boolean },
 ): string {
+  if (options.isLogViewOpen) {
+    return `Keys: j/k line | u/d page | g/G oldest/latest | v log ${options.logViewLevel} | l close logs | q quit`;
+  }
+
   if (route === "project-selector") {
     return options.isCreatingProject
       ? "Keys: Type path | Enter create | Esc cancel"
-      : "Keys: Up/Down or k/j move | Enter select | n new project | Tab switch | q quit";
+      : "Keys: Up/Down or k/j move | Enter select | n new project | l open logs | Tab switch | q quit";
   }
 
   return options.isCreatingTask
     ? "Keys: Type prompt | Enter run | Esc cancel"
-    : "Keys: Up/Down or k/j move | n new task prompt | Tab switch | q quit";
+    : "Keys: Up/Down or k/j move | n new task prompt | d delete task | l open logs | Tab switch | q quit";
 }
 
 async function ensureDefaultProject(
