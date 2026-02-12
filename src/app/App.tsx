@@ -274,20 +274,41 @@ export function App({
 
       setSessionMessagesByTaskID((current) => {
         const existing = current[payload.taskId] ?? [];
-        if (
-          existing.some((message) => message.messageID === payload.messageID)
-        ) {
-          return current;
+        const nextMessage = {
+          messageID: payload.messageID,
+          role: payload.role,
+          preview: payload.preview,
+          createdAt: payload.createdAt,
+        };
+        const existingIndex = existing.findIndex(
+          (message) => message.messageID === payload.messageID,
+        );
+
+        if (existingIndex >= 0) {
+          const previous = existing[existingIndex];
+          if (!previous) {
+            return current;
+          }
+
+          if (
+            previous.role === nextMessage.role &&
+            previous.preview === nextMessage.preview &&
+            previous.createdAt === nextMessage.createdAt
+          ) {
+            return current;
+          }
+
+          const updated = [...existing];
+          updated[existingIndex] = nextMessage;
+          return {
+            ...current,
+            [payload.taskId]: updated.slice(-20),
+          };
         }
 
         const nextMessages = [
           ...existing,
-          {
-            messageID: payload.messageID,
-            role: payload.role,
-            preview: payload.preview,
-            createdAt: payload.createdAt,
-          },
+          nextMessage,
         ].slice(-20);
 
         return {

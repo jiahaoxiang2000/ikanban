@@ -296,6 +296,14 @@ export class TaskOrchestrator {
         sessionID: task.sessionID,
         prompt: normalizedPrompt,
         worktreeDirectory: task.worktreeDirectory,
+        onMessage: (message) => {
+          this.emit({
+            type: "task.session.message.received",
+            taskId: normalizedTaskId,
+            sessionID: task.sessionID!,
+            message,
+          });
+        },
       });
 
       this.emit({
@@ -303,15 +311,6 @@ export class TaskOrchestrator {
         taskId: normalizedTaskId,
         prompt: promptExecution.submission,
       });
-
-      for (const message of promptExecution.messages) {
-        this.emit({
-          type: "task.session.message.received",
-          taskId: normalizedTaskId,
-          sessionID: task.sessionID,
-          message,
-        });
-      }
 
       const reviewRuntime = this.transitionTask(normalizedTaskId, "review");
       this.emit({
@@ -521,6 +520,14 @@ export class TaskOrchestrator {
         prompt: entry.input.initialPrompt,
         worktreeDirectory: createdWorktree.directory,
         model: entry.input.model,
+        onMessage: (message) => {
+          this.emit({
+            type: "task.session.message.received",
+            taskId,
+            sessionID: createdSession.sessionID,
+            message,
+          });
+        },
       });
       promptSubmission = promptExecution.submission;
       this.emit({
@@ -528,15 +535,6 @@ export class TaskOrchestrator {
         taskId,
         prompt: promptSubmission,
       });
-
-      for (const message of promptExecution.messages) {
-        this.emit({
-          type: "task.session.message.received",
-          taskId,
-          sessionID: createdSession.sessionID,
-          message,
-        });
-      }
 
       runtime = this.transitionTask(taskId, "review");
       this.emit({

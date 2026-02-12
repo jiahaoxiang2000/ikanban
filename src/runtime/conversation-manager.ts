@@ -65,6 +65,8 @@ export type PromptExecutionResult = {
   messages: ConversationMessageMeta[];
 };
 
+type PromptMessageHandler = (message: ConversationMessageMeta) => void;
+
 export type ListConversationMessagesInput = {
   sessionID: string;
   worktreeDirectory?: string;
@@ -137,7 +139,7 @@ export class ConversationManager {
   }
 
   async sendInitialPromptAndAwaitMessages(
-    input: SendInitialPromptInput & { timeoutMs?: number },
+    input: SendInitialPromptInput & { timeoutMs?: number; onMessage?: PromptMessageHandler },
   ): Promise<PromptExecutionResult> {
     const sessionID = normalizeSessionID(input.sessionID);
     const prompt = normalizePrompt(input.prompt);
@@ -146,12 +148,43 @@ export class ConversationManager {
     const timeoutMs = normalizeOptionalTimeout(input.timeoutMs, 45_000);
     const resolvedModel = await this.resolvePromptModel(client, worktreeDirectory, input.model);
     const resolvedAgent = input.agent?.trim() || "build";
+    const onMessage = input.onMessage;
+    const existingMessages = await this.listConversationMessages({
+      sessionID,
+      worktreeDirectory,
+    });
+    const knownMessageStates = new Map(
+      existingMessages.map((message) => [message.id, toMessageStateSignature(message)]),
+    );
+    const relevantMessages: ConversationMessageMeta[] = [];
+    let lastPollAt = 0;
+
+    const pollForNewMessages = async (force = false): Promise<void> => {
+      const now = Date.now();
+      if (!force && now - lastPollAt < 750) {
+        return;
+      }
+
+      lastPollAt = now;
+      const newlyObserved = await this.collectMessageChanges({
+        sessionID,
+        worktreeDirectory,
+        knownMessageStates,
+      });
+
+      for (const message of newlyObserved) {
+        relevantMessages.push(message);
+        onMessage?.(message);
+      }
+    };
 
     const subscribeResult = await client.event.subscribe({
       directory: worktreeDirectory,
     });
     const eventStream = extractEventStream(subscribeResult);
     const iterator = eventStream[Symbol.asyncIterator]();
+
+    const submittedAt = Date.now();
 
     const promptResponse = await client.session.promptAsync({
       sessionID,
@@ -164,7 +197,6 @@ export class ConversationManager {
       throw new Error(`Failed to send initial prompt: ${formatUnknownError(promptResponse.error)}`);
     }
 
-    const submittedAt = Date.now();
     const existing = this.sessionsByID.get(sessionID);
     if (existing) {
       this.sessionsByID.set(sessionID, {
@@ -175,26 +207,30 @@ export class ConversationManager {
     }
 
     try {
-      const idleResult = await waitForSessionIdle(iterator, sessionID, timeoutMs);
+      const idleResult = await waitForSessionIdle(iterator, sessionID, timeoutMs, {
+        onSessionEvent: async (event) => {
+          if (isMessageStreamEvent(event.type)) {
+            await pollForNewMessages(true);
+          }
+        },
+        onTick: async () => {
+          await pollForNewMessages(false);
+        },
+      });
       if (idleResult.errorMessage) {
         throw new Error(idleResult.errorMessage);
       }
 
-      const idleReached = idleResult.idle;
-      if (!idleReached) {
-        throw new Error(
-          `No assistant response received within ${timeoutMs}ms for session ${sessionID}.`,
-        );
+      await pollForNewMessages(true);
+
+      if (!idleResult.idle && relevantMessages.length === 0) {
+        throw new Error(`No assistant response received within ${timeoutMs}ms for session ${sessionID}.`);
       }
     } finally {
       await iterator.return?.();
     }
 
-    const messages = await this.listConversationMessages({
-      sessionID,
-      worktreeDirectory,
-    });
-    const relevantMessages = messages.filter((message) => message.createdAt >= submittedAt);
+    await pollForNewMessages(true);
     const hasAssistantMessage = relevantMessages.some((message) => message.role === "assistant");
 
     if (!hasAssistantMessage) {
@@ -216,7 +252,7 @@ export class ConversationManager {
   }
 
   async sendFollowUpPromptAndAwaitMessages(
-    input: SendFollowUpPromptInput & { timeoutMs?: number },
+    input: SendFollowUpPromptInput & { timeoutMs?: number; onMessage?: PromptMessageHandler },
   ): Promise<PromptExecutionResult> {
     const sessionID = normalizeSessionID(input.sessionID);
     const prompt = normalizePrompt(input.prompt);
@@ -225,12 +261,43 @@ export class ConversationManager {
     const timeoutMs = normalizeOptionalTimeout(input.timeoutMs, 45_000);
     const resolvedModel = await this.resolvePromptModel(client, worktreeDirectory, input.model);
     const resolvedAgent = input.agent?.trim() || "build";
+    const onMessage = input.onMessage;
+    const existingMessages = await this.listConversationMessages({
+      sessionID,
+      worktreeDirectory,
+    });
+    const knownMessageStates = new Map(
+      existingMessages.map((message) => [message.id, toMessageStateSignature(message)]),
+    );
+    const relevantMessages: ConversationMessageMeta[] = [];
+    let lastPollAt = 0;
+
+    const pollForNewMessages = async (force = false): Promise<void> => {
+      const now = Date.now();
+      if (!force && now - lastPollAt < 750) {
+        return;
+      }
+
+      lastPollAt = now;
+      const newlyObserved = await this.collectMessageChanges({
+        sessionID,
+        worktreeDirectory,
+        knownMessageStates,
+      });
+
+      for (const message of newlyObserved) {
+        relevantMessages.push(message);
+        onMessage?.(message);
+      }
+    };
 
     const subscribeResult = await client.event.subscribe({
       directory: worktreeDirectory,
     });
     const eventStream = extractEventStream(subscribeResult);
     const iterator = eventStream[Symbol.asyncIterator]();
+
+    const submittedAt = Date.now();
 
     const promptResponse = await client.session.promptAsync({
       sessionID,
@@ -243,7 +310,6 @@ export class ConversationManager {
       throw new Error(`Failed to send follow-up prompt: ${formatUnknownError(promptResponse.error)}`);
     }
 
-    const submittedAt = Date.now();
     const existing = this.sessionsByID.get(sessionID);
     if (existing) {
       this.sessionsByID.set(sessionID, {
@@ -254,26 +320,30 @@ export class ConversationManager {
     }
 
     try {
-      const idleResult = await waitForSessionIdle(iterator, sessionID, timeoutMs);
+      const idleResult = await waitForSessionIdle(iterator, sessionID, timeoutMs, {
+        onSessionEvent: async (event) => {
+          if (isMessageStreamEvent(event.type)) {
+            await pollForNewMessages(true);
+          }
+        },
+        onTick: async () => {
+          await pollForNewMessages(false);
+        },
+      });
       if (idleResult.errorMessage) {
         throw new Error(idleResult.errorMessage);
       }
 
-      const idleReached = idleResult.idle;
-      if (!idleReached) {
-        throw new Error(
-          `No assistant response received within ${timeoutMs}ms for session ${sessionID}.`,
-        );
+      await pollForNewMessages(true);
+
+      if (!idleResult.idle && relevantMessages.length === 0) {
+        throw new Error(`No assistant response received within ${timeoutMs}ms for session ${sessionID}.`);
       }
     } finally {
       await iterator.return?.();
     }
 
-    const messages = await this.listConversationMessages({
-      sessionID,
-      worktreeDirectory,
-    });
-    const relevantMessages = messages.filter((message) => message.createdAt >= submittedAt);
+    await pollForNewMessages(true);
     const hasAssistantMessage = relevantMessages.some((message) => message.role === "assistant");
 
     if (!hasAssistantMessage) {
@@ -382,6 +452,32 @@ export class ConversationManager {
       prompt,
       submittedAt,
     };
+  }
+
+  private async collectMessageChanges(input: {
+    sessionID: string;
+    worktreeDirectory: string;
+    knownMessageStates: Map<string, string>;
+  }): Promise<ConversationMessageMeta[]> {
+    const messages = await this.listConversationMessages({
+      sessionID: input.sessionID,
+      worktreeDirectory: input.worktreeDirectory,
+    });
+
+    const changes: ConversationMessageMeta[] = [];
+    for (const message of messages) {
+      const signature = toMessageStateSignature(message);
+      const previousSignature = input.knownMessageStates.get(message.id);
+
+      if (previousSignature === signature) {
+        continue;
+      }
+
+      input.knownMessageStates.set(message.id, signature);
+      changes.push(message);
+    }
+
+    return changes;
   }
 
   private resolveDirectoryForSession(sessionID: string, explicitDirectory?: string): string {
@@ -719,14 +815,24 @@ async function waitForSessionIdle(
   iterator: AsyncIterator<unknown>,
   sessionID: string,
   timeoutMs: number,
+  hooks?: {
+    onSessionEvent?: (event: { type: string; properties?: unknown }) => Promise<void>;
+    onTick?: () => Promise<void>;
+  },
 ): Promise<{ idle: boolean; errorMessage?: string }> {
   const deadline = Date.now() + timeoutMs;
+  let nextDeadline = deadline;
 
-  while (Date.now() < deadline) {
-    const remainingMs = Math.max(1, deadline - Date.now());
-    const next = await nextEventWithTimeout(iterator, remainingMs);
+  while (Date.now() < nextDeadline) {
+    const remainingMs = Math.max(1, nextDeadline - Date.now());
+    const next = await nextEventWithTimeout(iterator, Math.min(1_000, remainingMs));
 
-    if (!next || next.done) {
+    if (!next) {
+      await hooks?.onTick?.();
+      continue;
+    }
+
+    if (next.done) {
       return { idle: false };
     }
 
@@ -735,17 +841,21 @@ async function waitForSessionIdle(
       continue;
     }
 
-    const properties = asRecord(normalizedEvent.properties);
-    if (properties?.sessionID !== sessionID) {
+    const eventSessionID = extractEventSessionID(normalizedEvent);
+    if (eventSessionID !== sessionID) {
       continue;
     }
+
+    const properties = asRecord(normalizedEvent.properties);
+    await hooks?.onSessionEvent?.(normalizedEvent);
+    nextDeadline = Date.now() + timeoutMs;
 
     if (normalizedEvent.type === "session.idle") {
       return { idle: true };
     }
 
     if (normalizedEvent.type === "session.status") {
-      const status = asRecord(properties.status);
+      const status = asRecord(properties?.status);
       if (status?.type === "idle") {
         return { idle: true };
       }
@@ -753,7 +863,7 @@ async function waitForSessionIdle(
     }
 
     if (normalizedEvent.type === "session.error") {
-      const errorLike = asRecord(properties.error);
+      const errorLike = asRecord(properties?.error);
       const data = asRecord(errorLike?.data);
       const message =
         (typeof data?.message === "string" && data.message) ||
@@ -763,7 +873,55 @@ async function waitForSessionIdle(
     }
   }
 
+  await hooks?.onTick?.();
+
   return { idle: false };
+}
+
+function isMessageStreamEvent(type: string): boolean {
+  return (
+    type === "message.updated" ||
+    type === "message.part.updated" ||
+    type === "message.part.removed" ||
+    type === "message.removed"
+  );
+}
+
+function toMessageStateSignature(message: ConversationMessageMeta): string {
+  return JSON.stringify({
+    role: message.role,
+    createdAt: message.createdAt,
+    preview: message.preview,
+    partCount: message.partCount,
+    hasError: message.hasError,
+  });
+}
+
+function extractEventSessionID(event: { type: string; properties?: unknown }): string | undefined {
+  const properties = asRecord(event.properties);
+  if (!properties) {
+    return undefined;
+  }
+
+  if (typeof properties.sessionID === "string") {
+    return properties.sessionID;
+  }
+
+  if (event.type === "message.updated") {
+    const info = asRecord(properties.info);
+    if (typeof info?.sessionID === "string") {
+      return info.sessionID;
+    }
+  }
+
+  if (event.type === "message.part.updated") {
+    const part = asRecord(properties.part);
+    if (typeof part?.sessionID === "string") {
+      return part.sessionID;
+    }
+  }
+
+  return undefined;
 }
 
 function normalizeEvent(value: unknown): { type: string; properties?: unknown } | undefined {
