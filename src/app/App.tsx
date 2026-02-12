@@ -1216,26 +1216,26 @@ function keyboardHints(
   },
 ): string {
   if (options.isLogViewOpen) {
-    return `Keys: j/k line | u/d page | g/G oldest/latest | v log ${options.logViewLevel} | l close logs | q quit`;
+    return `Keys: j/k line | u/d page | g/G ends | v level:${options.logViewLevel} | l logs | q quit`;
   }
 
   if (route === "project-selector") {
     return options.isCreatingProject
-      ? "Keys: Type path | Enter create | Esc cancel"
-      : "Keys: Up/Down or k/j move | Enter select | n new project | d delete project | l open logs | Tab switch | q quit";
+      ? "Keys: type path | Enter create | Esc cancel"
+      : "Keys: Up/Down or j/k | Enter open | n new | d delete | l logs | Tab board | q quit";
   }
 
   if (options.isFollowUpPrompt) {
-    return "Keys: Type prompt | Enter send | Esc cancel";
+    return "Keys: type prompt | Enter send | Esc cancel";
   }
 
   if (options.isEditingTaskModel) {
-    return "Keys: Type to filter | Up/Down move | Backspace delete | Enter save | Esc cancel";
+    return "Keys: type filter | Up/Down move | Backspace delete | Enter save | Esc cancel";
   }
 
   return options.isCreatingTask
-    ? "Keys: Type prompt | Enter run | Esc cancel"
-    : "Keys: Up/Down or k/j move | n new task | o task model | p follow-up prompt | m merge | d delete | l logs | Tab switch | q quit";
+    ? "Keys: type prompt | Enter run | Esc cancel"
+    : "Keys: Up/Down or j/k | n new | o model | p follow-up | m merge | d delete | l logs | Tab projects | q quit";
 }
 
 async function ensureDefaultProject(
