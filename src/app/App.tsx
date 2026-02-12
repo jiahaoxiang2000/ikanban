@@ -407,6 +407,37 @@ export function App({
     pushBanner("info", "Enter project path and press Enter to create project.");
   }, [defaultProjectDirectory, pushBanner]);
 
+  const deleteSelectedProject = useCallback(async () => {
+    const project = projects[selectedProjectIndex];
+    if (!project) {
+      pushBanner("warn", "No project selected.");
+      return;
+    }
+
+    setBusyMessage(`Deleting project ${project.id}...`);
+    try {
+      const removed = await services.projectRegistry.removeProject(project.id);
+      if (!removed) {
+        pushBanner("warn", `Project ${project.id} was already removed.`);
+        await refreshProjects();
+        return;
+      }
+
+      await refreshProjects();
+      pushBanner("success", `Deleted project: ${project.name}`);
+    } catch (error) {
+      pushBanner("error", toErrorMessage(error));
+    } finally {
+      setBusyMessage(undefined);
+    }
+  }, [
+    projects,
+    selectedProjectIndex,
+    pushBanner,
+    services.projectRegistry,
+    refreshProjects,
+  ]);
+
   const runTask = useCallback(
     async (
       initialPrompt?: string,
@@ -942,6 +973,11 @@ export function App({
         return;
       }
 
+      if (input === "d") {
+        void deleteSelectedProject();
+        return;
+      }
+
       return;
     }
 
@@ -1186,7 +1222,7 @@ function keyboardHints(
   if (route === "project-selector") {
     return options.isCreatingProject
       ? "Keys: Type path | Enter create | Esc cancel"
-      : "Keys: Up/Down or k/j move | Enter select | n new project | l open logs | Tab switch | q quit";
+      : "Keys: Up/Down or k/j move | Enter select | n new project | d delete project | l open logs | Tab switch | q quit";
   }
 
   if (options.isFollowUpPrompt) {

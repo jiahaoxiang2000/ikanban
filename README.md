@@ -49,6 +49,7 @@ Project Selector:
 - `j`/`k` or arrow keys - move selection
 - `Enter` - open selected project
 - `n` - add a new project
+- `d` - delete selected project
 
 Task Board:
 
