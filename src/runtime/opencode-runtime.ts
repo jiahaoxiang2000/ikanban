@@ -69,14 +69,16 @@ export class OpenCodeRuntime {
       return this.startPromise;
     }
 
+    const runtimeOptions: CreateOpencodeArgs = {
+      ...(this.options.hostname ? { hostname: this.options.hostname } : {}),
+      ...(typeof this.options.port === "number" ? { port: this.options.port } : {}),
+      ...(this.options.signal ? { signal: this.options.signal } : {}),
+      ...(typeof this.options.timeoutMs === "number" ? { timeout: this.options.timeoutMs } : {}),
+      ...(this.options.config ? { config: this.options.config } : {}),
+    };
+
     this.startPromise = this.dependencies
-      .createOpencode({
-        hostname: this.options.hostname,
-        port: this.options.port,
-        signal: this.options.signal,
-        timeout: this.options.timeoutMs,
-        config: this.options.config,
-      })
+      .createOpencode(runtimeOptions)
       .then((runtime) => {
         this.runtime = runtime;
         return runtime;
