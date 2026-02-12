@@ -21,20 +21,21 @@ export function LogView({ entries, level, scrollOffset, visibleRows }: LogViewPr
     );
   }
 
-  const clampedOffset = Math.max(0, Math.min(scrollOffset, Math.max(entries.length - 1, 0)));
+  const filteredEntries = level === "debug" ? entries : entries.filter((entry) => entry.level !== "debug");
+  const clampedOffset = Math.max(0, Math.min(scrollOffset, Math.max(filteredEntries.length - 1, 0)));
   const rows = Math.max(1, visibleRows);
-  const end = Math.max(entries.length - clampedOffset, 0);
+  const end = Math.max(filteredEntries.length - clampedOffset, 0);
   const start = Math.max(0, end - rows);
-  const visibleEntries = entries.slice(start, end);
+  const visibleEntries = filteredEntries.slice(start, end);
 
   return (
     <Box flexDirection="column">
       <Text color="cyan">
-        Log view ({level}) {start + 1}-{end} / {entries.length}
+        Log view ({level}) {start + 1}-{end} / {filteredEntries.length}
       </Text>
       {visibleEntries.map((entry) => (
         <Box key={`${entry.sequence}:${entry.source}`} flexDirection="column">
-          <Text color={entry.level === "error" ? "red" : entry.level === "warn" ? "yellow" : undefined}>
+          <Text color={entry.level === "error" ? "red" : entry.level === "warn" ? "yellow" : entry.level === "debug" ? "gray" : undefined}>
             [{entry.level}] {entry.message}
           </Text>
           {level === "debug" ? (

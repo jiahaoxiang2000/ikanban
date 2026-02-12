@@ -66,6 +66,7 @@ export function App({ services, defaultProjectDirectory, initialRoute = "project
   const [newProjectPathInput, setNewProjectPathInput] = useState<string>();
   const [newTaskPromptInput, setNewTaskPromptInput] = useState<string>();
   const [promptByTaskID, setPromptByTaskID] = useState<Record<string, string>>({});
+  const [followUpPromptInput, setFollowUpPromptInput] = useState<string>();
   const [logViewLevel, setLogViewLevel] = useState<LogViewLevel>("info");
   const [isLogViewOpen, setIsLogViewOpen] = useState(false);
   const [logScrollOffset, setLogScrollOffset] = useState(0);
@@ -349,6 +350,70 @@ export function App({ services, defaultProjectDirectory, initialRoute = "project
     }
   }, [activeProject, pushBanner, services.orchestrator]);
 
+  const sendFollowUpPrompt = useCallback(async (prompt: string) => {
+    const task = selectedTask;
+    if (!task) {
+      pushBanner("warn", "No task selected.");
+      return;
+    }
+
+    if (task.state !== "review") {
+      pushBanner("warn", "Task must be in review state to send a follow-up prompt.");
+      return;
+    }
+
+    setBusyMessage(`Sending follow-up to ${task.taskId}...`);
+    try {
+      await services.orchestrator.sendFollowUpPrompt(task.taskId, prompt);
+      pushBanner("success", `Follow-up completed for ${task.taskId}. Now in review.`);
+    } catch (error) {
+      pushBanner("error", toErrorMessage(error));
+    } finally {
+      setBusyMessage(undefined);
+      setTasks(services.orchestrator.listTasks());
+    }
+  }, [selectedTask, pushBanner, services.orchestrator]);
+
+  const mergeSelectedTask = useCallback(async () => {
+    const task = selectedTask;
+    if (!task) {
+      pushBanner("warn", "No task selected.");
+      return;
+    }
+
+    if (task.state !== "review") {
+      pushBanner("warn", "Task must be in review state to merge.");
+      return;
+    }
+
+    setBusyMessage(`Merging ${task.taskId}...`);
+    try {
+      const result = await services.orchestrator.mergeTask(task.taskId);
+      pushBanner("success", `Merged branch ${result.branch} for task ${task.taskId}.`);
+    } catch (error) {
+      pushBanner("error", toErrorMessage(error));
+    } finally {
+      setBusyMessage(undefined);
+      setTasks(services.orchestrator.listTasks());
+    }
+  }, [selectedTask, pushBanner, services.orchestrator]);
+
+  const startFollowUpPromptInput = useCallback(() => {
+    const task = selectedTask;
+    if (!task) {
+      pushBanner("warn", "No task selected.");
+      return;
+    }
+
+    if (task.state !== "review") {
+      pushBanner("warn", "Task must be in review state to send a follow-up prompt.");
+      return;
+    }
+
+    setFollowUpPromptInput("");
+    pushBanner("info", "Enter follow-up prompt and press Enter to send.");
+  }, [selectedTask, pushBanner]);
+
   const startTaskPromptInput = useCallback(() => {
     if (!activeProject) {
       pushBanner("warn", "No active project selected.");
@@ -438,7 +503,7 @@ export function App({ services, defaultProjectDirectory, initialRoute = "project
   }, [selectedTask?.taskId]);
 
   useInput((input, key) => {
-    const isInTextInputMode = newProjectPathInput !== undefined || newTaskPromptInput !== undefined;
+    const isInTextInputMode = newProjectPathInput !== undefined || newTaskPromptInput !== undefined || followUpPromptInput !== undefined;
     const wantsMoveUp = (key.upArrow || input === "k") && !key.ctrl && !key.meta;
     const wantsMoveDown = (key.downArrow || input === "j") && !key.ctrl && !key.meta;
 
@@ -562,6 +627,37 @@ export function App({ services, defaultProjectDirectory, initialRoute = "project
       return;
     }
 
+    if (followUpPromptInput !== undefined) {
+      if (key.escape) {
+        setFollowUpPromptInput(undefined);
+        pushBanner("info", "Follow-up prompt cancelled.");
+        return;
+      }
+
+      if (key.return) {
+        const promptToSubmit = followUpPromptInput.trim();
+        if (!promptToSubmit) {
+          pushBanner("warn", "Follow-up prompt is required.");
+          return;
+        }
+
+        setFollowUpPromptInput(undefined);
+        void sendFollowUpPrompt(promptToSubmit);
+        return;
+      }
+
+      if (key.backspace || key.delete) {
+        setFollowUpPromptInput((current) => (current && current.length > 0 ? current.slice(0, -1) : ""));
+        return;
+      }
+
+      if (input && !key.ctrl && !key.meta && !key.upArrow && !key.downArrow && !key.leftArrow && !key.rightArrow) {
+        setFollowUpPromptInput((current) => `${current ?? ""}${input}`);
+      }
+
+      return;
+    }
+
     if (route === "project-selector") {
       if (wantsMoveUp) {
         setSelectedProjectIndex((current) => Math.max(0, current - 1));
@@ -609,6 +705,16 @@ export function App({ services, defaultProjectDirectory, initialRoute = "project
       return;
     }
 
+    if (input === "p") {
+      startFollowUpPromptInput();
+      return;
+    }
+
+    if (input === "m") {
+      void mergeSelectedTask();
+      return;
+    }
+
   });
 
   const frameWidth = Math.max(stdout.columns ?? 40, 40);
@@ -649,60 +755,59 @@ export function App({ services, defaultProjectDirectory, initialRoute = "project
               visibleRows={logVisibleRows}
             />
           </Box>
+        ) : route === "project-selector" ? (
+          <Box flexDirection="column" flexGrow={1}>
+            <Text color="magentaBright">Projects</Text>
+            <Box marginTop={1} flexDirection="column">
+              <ProjectSelectorView
+                projects={projects}
+                selectedProjectIndex={selectedProjectIndex}
+              />
+            </Box>
+          </Box>
         ) : (
-          <>
-            <Box flexDirection="row" columnGap={4} flexGrow={1}>
-              <Box flexDirection="column" width={44} flexShrink={0}>
-                <Text color="magentaBright">
-                  {route === "project-selector" ? "Projects" : `Tasks (${activeProject?.name ?? "none"})`}
-                </Text>
-                <Box marginTop={1} flexDirection="column">
-                  {route === "project-selector" ? (
-                    <ProjectSelectorView
-                      projects={projects}
-                      selectedProjectIndex={selectedProjectIndex}
-                    />
-                  ) : (
-                    <TaskBoardView
-                      tasks={tasksForActiveProject}
-                      selectedTaskIndex={selectedTaskIndex}
-                    />
-                  )}
-                </Box>
-              </Box>
-
-              <Box flexDirection="column" flexGrow={1}>
-                <Text color="magentaBright">Details</Text>
-                <Box marginTop={1} flexDirection="column">
-                  {selectedTask ? (
-                    <>
-                      <Text>Task: {selectedTask.taskId}</Text>
-                      <Text>State: {selectedTask.state}</Text>
-                      <Text>Project: {selectedTask.projectId}</Text>
-                      <Text>Session: {selectedTask.sessionID ?? "-"}</Text>
-                      <Text>Worktree: {selectedTask.worktreeDirectory ?? "-"}</Text>
-                      <Text>Error: {selectedTask.error ?? "-"}</Text>
-                    </>
-                  ) : (
-                    <Text color="yellow">Select a task to inspect details.</Text>
-                  )}
-                </Box>
-
-                <Box marginTop={1} flexDirection="column">
-                  <Text color="cyan">Conversation</Text>
-                  {taskMessages.length > 0 ? (
-                    taskMessages.slice(-6).map((message) => (
-                      <Text key={message.messageID} color={message.role === "assistant" ? "green" : undefined}>
-                        [{message.role}] {truncate(message.preview || "(no text preview)", 120)}
-                      </Text>
-                    ))
-                  ) : (
-                    <Text color="yellow">No conversation messages yet.</Text>
-                  )}
-                </Box>
+          <Box flexDirection="column" flexGrow={1}>
+            <Box flexDirection="column">
+              <Text color="magentaBright">Tasks ({activeProject?.name ?? "none"})</Text>
+              <Box marginTop={1} flexDirection="column">
+                <TaskBoardView
+                  tasks={tasksForActiveProject}
+                  selectedTaskIndex={selectedTaskIndex}
+                />
               </Box>
             </Box>
-          </>
+
+            <Box marginTop={1} flexDirection="column" flexGrow={1}>
+              <Text color="magentaBright">Details</Text>
+              <Box marginTop={1} flexDirection="column">
+                {selectedTask ? (
+                  <>
+                    <Text>Task: {selectedTask.taskId}</Text>
+                    <Text>State: {selectedTask.state}</Text>
+                    <Text>Project: {selectedTask.projectId}</Text>
+                    <Text>Session: {selectedTask.sessionID ?? "-"}</Text>
+                    <Text>Worktree: {selectedTask.worktreeDirectory ?? "-"}</Text>
+                    <Text>Error: {selectedTask.error ?? "-"}</Text>
+                  </>
+                ) : (
+                  <Text color="yellow">Select a task to inspect details.</Text>
+                )}
+              </Box>
+
+              <Box marginTop={1} flexDirection="column">
+                <Text color="cyan">Conversation</Text>
+                {taskMessages.length > 0 ? (
+                  taskMessages.slice(-6).map((message) => (
+                    <Text key={message.messageID} color={message.role === "assistant" ? "green" : undefined}>
+                      [{message.role}] {truncate(message.preview || "(no text preview)", 120)}
+                    </Text>
+                  ))
+                ) : (
+                  <Text color="yellow">No conversation messages yet.</Text>
+                )}
+              </Box>
+            </Box>
+          </Box>
         )}
       </Box>
 
@@ -718,11 +823,18 @@ export function App({ services, defaultProjectDirectory, initialRoute = "project
         </Box>
       ) : null}
 
+      {followUpPromptInput !== undefined ? (
+        <Box marginTop={1}>
+          <Text color="cyan">Follow-up prompt: {followUpPromptInput || " "}</Text>
+        </Box>
+      ) : null}
+
       <Box marginTop={1}>
         <Text color="gray">
           {keyboardHints(route, {
             isCreatingProject: newProjectPathInput !== undefined,
             isCreatingTask: newTaskPromptInput !== undefined,
+            isFollowUpPrompt: followUpPromptInput !== undefined,
             logViewLevel,
             isLogViewOpen,
           })}
@@ -740,7 +852,7 @@ export function App({ services, defaultProjectDirectory, initialRoute = "project
 
 function keyboardHints(
   route: AppRoute,
-  options: { isCreatingProject: boolean; isCreatingTask: boolean; logViewLevel: LogViewLevel; isLogViewOpen: boolean },
+  options: { isCreatingProject: boolean; isCreatingTask: boolean; isFollowUpPrompt: boolean; logViewLevel: LogViewLevel; isLogViewOpen: boolean },
 ): string {
   if (options.isLogViewOpen) {
     return `Keys: j/k line | u/d page | g/G oldest/latest | v log ${options.logViewLevel} | l close logs | q quit`;
@@ -752,9 +864,13 @@ function keyboardHints(
       : "Keys: Up/Down or k/j move | Enter select | n new project | l open logs | Tab switch | q quit";
   }
 
+  if (options.isFollowUpPrompt) {
+    return "Keys: Type prompt | Enter send | Esc cancel";
+  }
+
   return options.isCreatingTask
     ? "Keys: Type prompt | Enter run | Esc cancel"
-    : "Keys: Up/Down or k/j move | n new task prompt | d delete task | l open logs | Tab switch | q quit";
+    : "Keys: Up/Down or k/j move | n new task | p follow-up prompt | m merge | d delete | l logs | Tab switch | q quit";
 }
 
 async function ensureDefaultProject(
@@ -882,6 +998,19 @@ function relayOrchestratorEvent(
         failedAt: event.task.updatedAt,
         error: event.error,
       });
+      return;
+    }
+    case "task.review": {
+      bus.emit("task.state.updated", {
+        taskId: event.taskId,
+        projectId: event.task.projectId,
+        previousState: "running",
+        nextState: "review",
+        updatedAt: event.task.updatedAt,
+      });
+      return;
+    }
+    case "task.merged": {
       return;
     }
   }
