@@ -97,6 +97,38 @@ describe("OpenCodeRuntime lifecycle", () => {
     expect(second.server.url).toBe("http://localhost:9001");
     expect(createdRuntimes[0]!.server.closeCalls).toBe(1);
   });
+
+  test("writes structured error logs when startup fails", async () => {
+    const logs: Array<{ level: string; source: string; message: string }> = [];
+
+    const runtime = new OpenCodeRuntime(
+      {
+        logger: {
+          log(record) {
+            logs.push({
+              level: record.level,
+              source: record.source,
+              message: record.message,
+            });
+          },
+        },
+      },
+      {
+        createOpencode: async () => {
+          throw new Error("cannot start");
+        },
+      },
+    );
+
+    await expect(runtime.start()).rejects.toThrow("cannot start");
+    expect(logs).toEqual([
+      {
+        level: "error",
+        source: "opencode-runtime.start",
+        message: "Failed to start OpenCode runtime.",
+      },
+    ]);
+  });
 });
 
 describe("OpenCodeRuntime scoped clients", () => {

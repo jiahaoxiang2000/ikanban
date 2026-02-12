@@ -66,10 +66,10 @@ This plan breaks implementation into parallel tracks so multiple contributors/ag
 
 ## Cross-Cutting
 
-- [ ] Add `AppConfig` loader (opencode + task concurrency + cleanup policy)
-- [ ] Add structured logging for runtime/orchestrator errors
-- [ ] Add guardrails for allowed project paths only
-- [ ] Ensure all OpenCode calls use `@opencode-ai/sdk/v2` APIs
+- [x] Add `AppConfig` loader (opencode + task concurrency + cleanup policy)
+- [x] Add structured logging for runtime/orchestrator errors
+- [x] Add guardrails for allowed project paths only
+- [x] Ensure all OpenCode calls use `@opencode-ai/sdk/v2` APIs
 
 ## Milestone Plan
 

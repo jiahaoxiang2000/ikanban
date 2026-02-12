@@ -7,6 +7,7 @@ import {
   type RunTaskInput,
   type TaskOrchestratorEvent,
 } from "./task-orchestrator";
+import type { RuntimeLogger } from "./runtime-logger";
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -20,6 +21,7 @@ type HarnessOptions = {
   cleanupThrows?: boolean;
   cleanupOnSuccess?: "keep" | "remove";
   cleanupOnFailure?: "keep" | "remove";
+  logger?: RuntimeLogger;
 };
 
 function createDeferred<T>(): Deferred<T> {
@@ -139,6 +141,7 @@ function createHarness(options: HarnessOptions = {}) {
       maxConcurrent: options.maxConcurrent,
       cleanupOnSuccess: options.cleanupOnSuccess,
       cleanupOnFailure: options.cleanupOnFailure,
+      logger: options.logger,
     },
   );
 
@@ -231,6 +234,32 @@ describe("TaskOrchestrator run flow", () => {
 
     expect(runtime?.state).toBe("failed");
     expect(runtime?.error).toContain("Cleanup failed: cleanup boom");
+  });
+
+  test("emits structured error log when execution fails", async () => {
+    const logs: Array<{ level: string; source: string; message: string; taskId?: string }> = [];
+    const { orchestrator } = createHarness({
+      sessionFailureForTaskId: "task-log-fail",
+      logger: {
+        log(record) {
+          logs.push({
+            level: record.level,
+            source: record.source,
+            message: record.message,
+            taskId: typeof record.context?.taskId === "string" ? record.context.taskId : undefined,
+          });
+        },
+      },
+    });
+
+    await expect(
+      orchestrator.runTask({
+        taskId: "task-log-fail",
+        initialPrompt: "Do work",
+      }),
+    ).rejects.toBeInstanceOf(TaskRunFailedError);
+
+    expect(logs.some((record) => record.source === "task-orchestrator.execute")).toBe(true);
   });
 });
 

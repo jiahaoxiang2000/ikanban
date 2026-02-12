@@ -100,6 +100,57 @@ describe("ProjectRegistry operations", () => {
       rmSync(sandbox, { recursive: true, force: true });
     }
   });
+
+  test("rejects project roots outside allowed directories", async () => {
+    const sandbox = createSandbox();
+
+    try {
+      const stateFilePath = join(sandbox, "state", "projects.json");
+      const outsideRoot = createRepositoryRoot(sandbox, "outside-repo");
+      const allowedBase = createRepositoryRoot(sandbox, "allowed-base");
+
+      const registry = new ProjectRegistry({
+        stateFilePath,
+        allowedRootDirectories: [join(allowedBase, "nested")],
+      });
+
+      await expect(
+        registry.addProject({
+          id: "project-outside",
+          name: "Outside",
+          rootDirectory: outsideRoot,
+        }),
+      ).rejects.toThrow("Project rootDirectory is not allowed");
+    } finally {
+      rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  test("accepts project roots under allowed directories", async () => {
+    const sandbox = createSandbox();
+
+    try {
+      const stateFilePath = join(sandbox, "state", "projects.json");
+      const allowedBase = join(sandbox, "allowed");
+      mkdirSync(allowedBase, { recursive: true });
+      const repositoryRoot = createRepositoryRoot(allowedBase, "repo-one");
+
+      const registry = new ProjectRegistry({
+        stateFilePath,
+        allowedRootDirectories: [allowedBase],
+      });
+
+      const project = await registry.addProject({
+        id: "project-allowed",
+        name: "Allowed",
+        rootDirectory: repositoryRoot,
+      });
+
+      expect(project.rootDirectory).toBe(resolve(repositoryRoot));
+    } finally {
+      rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("ProjectRegistry persistence", () => {

@@ -7,6 +7,8 @@ import {
   type OpencodeClientConfig,
 } from "@opencode-ai/sdk/v2/client";
 
+import { noopRuntimeLogger, toStructuredError, type RuntimeLogger } from "./runtime-logger";
+
 type RuntimeServer = {
   url: string;
   close(): void;
@@ -30,6 +32,7 @@ export type OpenCodeRuntimeOptions = {
   timeoutMs?: number;
   signal?: AbortSignal;
   config?: CreateOpencodeArgs extends { config?: infer TConfig } ? TConfig : never;
+  logger?: RuntimeLogger;
 };
 
 const defaultDependencies: RuntimeDependencies = {
@@ -40,6 +43,7 @@ const defaultDependencies: RuntimeDependencies = {
 export class OpenCodeRuntime {
   private readonly options: OpenCodeRuntimeOptions;
   private readonly dependencies: RuntimeDependencies;
+  private readonly logger: RuntimeLogger;
   private runtime?: RuntimeInstance;
   private startPromise?: Promise<RuntimeInstance>;
   private readonly clientsByDirectory = new Map<string, OpencodeClient>();
@@ -49,6 +53,7 @@ export class OpenCodeRuntime {
     dependencies: Partial<RuntimeDependencies> = {},
   ) {
     this.options = options;
+    this.logger = options.logger ?? noopRuntimeLogger;
     this.dependencies = {
       ...defaultDependencies,
       ...dependencies,
@@ -76,6 +81,15 @@ export class OpenCodeRuntime {
         this.runtime = runtime;
         return runtime;
       })
+      .catch((error) => {
+        this.logger.log({
+          level: "error",
+          source: "opencode-runtime.start",
+          message: "Failed to start OpenCode runtime.",
+          error: toStructuredError(error),
+        });
+        throw error;
+      })
       .finally(() => {
         this.startPromise = undefined;
       });
@@ -90,7 +104,18 @@ export class OpenCodeRuntime {
       return;
     }
 
-    runtime.server.close();
+    try {
+      runtime.server.close();
+    } catch (error) {
+      this.logger.log({
+        level: "error",
+        source: "opencode-runtime.stop",
+        message: "Failed while stopping OpenCode runtime server.",
+        error: toStructuredError(error),
+      });
+      throw error;
+    }
+
     this.runtime = undefined;
     this.clientsByDirectory.clear();
   }
@@ -123,10 +148,25 @@ export class OpenCodeRuntime {
     }
 
     const runtime = await this.start();
-    const client = this.dependencies.createOpencodeClient({
-      baseUrl: runtime.server.url,
-      directory: normalizedDirectory,
-    });
+    let client: OpencodeClient;
+
+    try {
+      client = this.dependencies.createOpencodeClient({
+        baseUrl: runtime.server.url,
+        directory: normalizedDirectory,
+      });
+    } catch (error) {
+      this.logger.log({
+        level: "error",
+        source: "opencode-runtime.client",
+        message: "Failed to create scoped OpenCode client.",
+        context: {
+          directory: normalizedDirectory,
+        },
+        error: toStructuredError(error),
+      });
+      throw error;
+    }
 
     this.clientsByDirectory.set(normalizedDirectory, client);
 

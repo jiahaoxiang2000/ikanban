@@ -1,5 +1,5 @@
 import { mkdir, stat } from "node:fs/promises";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 import { createProjectRef, type CreateProjectRefInput, type ProjectRef } from "../domain/project";
 
@@ -13,7 +13,51 @@ type ProjectRegistryState = {
 
 export type ProjectRegistryOptions = {
   stateFilePath: string;
+  allowedRootDirectories?: string[];
 };
+
+function normalizeAllowedRootDirectories(roots: string[] | undefined): string[] {
+  if (!roots || roots.length === 0) {
+    return [];
+  }
+
+  const normalizedRoots = roots.map((root) => {
+    const trimmedRoot = root.trim();
+
+    if (!trimmedRoot) {
+      throw new Error("Allowed root directories cannot contain empty values.");
+    }
+
+    if (!isAbsolute(trimmedRoot)) {
+      throw new Error(`Allowed root directories must be absolute paths: ${trimmedRoot}`);
+    }
+
+    return resolve(trimmedRoot);
+  });
+
+  return [...new Set(normalizedRoots)].sort((left, right) => left.localeCompare(right));
+}
+
+function isWithinDirectory(directory: string, parent: string): boolean {
+  const relation = relative(parent, directory);
+  return relation === "" || (!relation.startsWith("..") && !isAbsolute(relation));
+}
+
+function assertAllowedProjectRoot(rootDirectory: string, allowedRootDirectories: string[]): void {
+  if (allowedRootDirectories.length === 0) {
+    return;
+  }
+
+  const isAllowed = allowedRootDirectories.some((allowedRoot) =>
+    isWithinDirectory(rootDirectory, allowedRoot),
+  );
+
+  if (!isAllowed) {
+    throw new Error(
+      `Project rootDirectory is not allowed: ${rootDirectory}. Allowed roots: ${allowedRootDirectories.join(", ")}`,
+    );
+  }
+}
 
 export async function assertAbsoluteRepositoryRoot(rootDirectory: string): Promise<string> {
   const trimmedDirectory = rootDirectory.trim();
@@ -44,6 +88,7 @@ export async function assertAbsoluteRepositoryRoot(rootDirectory: string): Promi
 
 export class ProjectRegistry {
   private readonly options: ProjectRegistryOptions;
+  private readonly allowedRootDirectories: string[];
   private readonly projectsById = new Map<string, ProjectRef>();
   private activeProjectId: string | undefined;
   private loadPromise?: Promise<void>;
@@ -51,6 +96,7 @@ export class ProjectRegistry {
 
   constructor(options: ProjectRegistryOptions) {
     this.options = options;
+    this.allowedRootDirectories = normalizeAllowedRootDirectories(options.allowedRootDirectories);
   }
 
   async addProject(input: CreateProjectRefInput): Promise<ProjectRef> {
@@ -62,6 +108,7 @@ export class ProjectRegistry {
     }
 
     const normalizedDirectory = await assertAbsoluteRepositoryRoot(input.rootDirectory);
+    assertAllowedProjectRoot(normalizedDirectory, this.allowedRootDirectories);
     if (this.findProjectByRoot(normalizedDirectory)) {
       throw new Error(`Project rootDirectory is already registered: ${normalizedDirectory}`);
     }
@@ -182,6 +229,7 @@ export class ProjectRegistry {
     const parsedState = this.parseState(fileContent);
 
     for (const project of parsedState.projects) {
+      assertAllowedProjectRoot(project.rootDirectory, this.allowedRootDirectories);
       this.projectsById.set(project.id, project);
     }
 

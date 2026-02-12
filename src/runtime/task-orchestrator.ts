@@ -20,6 +20,7 @@ import type {
   WorktreeManager,
 } from "./worktree-manager";
 import { resolveCleanupPolicy } from "./worktree-manager";
+import { noopRuntimeLogger, toStructuredError, type RuntimeLogger } from "./runtime-logger";
 
 type ProjectRegistryLike = Pick<ProjectRegistry, "getProject" | "getActiveProject">;
 
@@ -37,6 +38,7 @@ export type TaskOrchestratorOptions = {
   maxConcurrent?: number;
   cleanupOnSuccess?: WorktreeCleanupPolicy;
   cleanupOnFailure?: WorktreeCleanupPolicy;
+  logger?: RuntimeLogger;
 };
 
 export type RunTaskInput = {
@@ -136,6 +138,7 @@ export class TaskOrchestrator {
   private readonly maxConcurrent: number;
   private readonly cleanupOnSuccess: WorktreeCleanupPolicy;
   private readonly cleanupOnFailure: WorktreeCleanupPolicy;
+  private readonly logger: RuntimeLogger;
   private readonly tasksById = new Map<string, TaskRuntime>();
   private readonly taskQueue: QueueEntry[] = [];
   private readonly runningTaskIds = new Set<string>();
@@ -155,6 +158,7 @@ export class TaskOrchestrator {
     this.maxConcurrent = normalizeMaxConcurrent(options.maxConcurrent);
     this.cleanupOnSuccess = resolveCleanupPolicy(options.cleanupOnSuccess, "keep");
     this.cleanupOnFailure = resolveCleanupPolicy(options.cleanupOnFailure, "keep");
+    this.logger = options.logger ?? noopRuntimeLogger;
   }
 
   runTask(input: RunTaskInput): Promise<RunTaskResult> {
@@ -326,6 +330,17 @@ export class TaskOrchestrator {
       cleanup = cleanupResult.cleanup;
     } catch (error) {
       const failureMessage = toErrorMessage(error);
+      this.logger.log({
+        level: "error",
+        source: "task-orchestrator.execute",
+        message: "Task execution failed.",
+        context: {
+          taskId,
+          projectId: project?.id,
+          state: runtime.state,
+        },
+        error: toStructuredError(error),
+      });
       runtime = this.transitionTaskToFailed(taskId, failureMessage);
 
       const projectDirectory = project?.rootDirectory;
@@ -409,6 +424,18 @@ export class TaskOrchestrator {
         cleanup,
       };
     } catch (error) {
+      this.logger.log({
+        level: "error",
+        source: "task-orchestrator.cleanup",
+        message: "Task worktree cleanup failed.",
+        context: {
+          taskId: input.taskId,
+          projectDirectory: input.projectDirectory,
+          worktreeDirectory: input.task.worktreeDirectory,
+          policy: input.policy,
+        },
+        error: toStructuredError(error),
+      });
       const cleanupFailureMessage = `Cleanup failed: ${toErrorMessage(error)}`;
       const mergedError = taskBeforeCleaning.error
         ? `${taskBeforeCleaning.error} ${cleanupFailureMessage}`
@@ -528,7 +555,19 @@ export class TaskOrchestrator {
 
   private emit(event: TaskOrchestratorEvent): void {
     for (const listener of this.listeners) {
-      listener(event);
+      try {
+        listener(event);
+      } catch (error) {
+        this.logger.log({
+          level: "error",
+          source: "task-orchestrator.listener",
+          message: "Task orchestrator listener threw.",
+          context: {
+            eventType: event.type,
+          },
+          error: toStructuredError(error),
+        });
+      }
     }
   }
 }
