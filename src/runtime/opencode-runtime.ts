@@ -7,7 +7,11 @@ import {
   type OpencodeClientConfig,
 } from "@opencode-ai/sdk/v2/client";
 
-import { noopRuntimeLogger, toStructuredError, type RuntimeLogger } from "./runtime-logger";
+import {
+  noopRuntimeLogger,
+  toStructuredError,
+  type RuntimeLogger,
+} from "./runtime-logger";
 
 type RuntimeServer = {
   url: string;
@@ -23,7 +27,9 @@ type CreateOpencodeArgs = Parameters<typeof createOpencode>[0];
 
 type RuntimeDependencies = {
   createOpencode: (options?: CreateOpencodeArgs) => Promise<RuntimeInstance>;
-  createOpencodeClient: (config?: OpencodeClientConfig & { directory?: string }) => OpencodeClient;
+  createOpencodeClient: (
+    config?: OpencodeClientConfig & { directory?: string },
+  ) => OpencodeClient;
 };
 
 export type OpenCodeRuntimeOptions = {
@@ -31,7 +37,9 @@ export type OpenCodeRuntimeOptions = {
   port?: number;
   timeoutMs?: number;
   signal?: AbortSignal;
-  config?: CreateOpencodeArgs extends { config?: infer TConfig } ? TConfig : never;
+  config?: CreateOpencodeArgs extends { config?: infer TConfig }
+  ? TConfig
+  : never;
   logger?: RuntimeLogger;
 };
 
@@ -71,9 +79,13 @@ export class OpenCodeRuntime {
 
     const runtimeOptions: CreateOpencodeArgs = {
       ...(this.options.hostname ? { hostname: this.options.hostname } : {}),
-      ...(typeof this.options.port === "number" ? { port: this.options.port } : {}),
+      ...(typeof this.options.port === "number"
+        ? { port: this.options.port }
+        : { port: 0 }),
       ...(this.options.signal ? { signal: this.options.signal } : {}),
-      ...(typeof this.options.timeoutMs === "number" ? { timeout: this.options.timeoutMs } : {}),
+      ...(typeof this.options.timeoutMs === "number"
+        ? { timeout: this.options.timeoutMs }
+        : {}),
       ...(this.options.config ? { config: this.options.config } : {}),
     };
 
@@ -100,7 +112,8 @@ export class OpenCodeRuntime {
   }
 
   async stop(): Promise<void> {
-    const runtime = this.runtime ?? (this.startPromise ? await this.startPromise : undefined);
+    const runtime =
+      this.runtime ?? (this.startPromise ? await this.startPromise : undefined);
 
     if (!runtime) {
       return;
@@ -179,7 +192,9 @@ export class OpenCodeRuntime {
     const trimmedDirectory = directory.trim();
 
     if (!trimmedDirectory) {
-      throw new Error("Directory is required to create a scoped OpenCode client.");
+      throw new Error(
+        "Directory is required to create a scoped OpenCode client.",
+      );
     }
 
     return resolve(trimmedDirectory);

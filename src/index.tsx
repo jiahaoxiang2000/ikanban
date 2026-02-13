@@ -24,7 +24,7 @@ const taskRegistry = new TaskRegistry({
   stateFilePath: resolve(join(homedir(), ".ikanban", "tasks.json")),
 });
 const worktreeManager = new WorktreeManager(runtime, { logger });
-const conversationManager = new ConversationManager(runtime);
+const conversationManager = new ConversationManager(runtime, { logger });
 const orchestrator = new TaskOrchestrator({
   projectRegistry,
   taskRegistry,

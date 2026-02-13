@@ -1,14 +1,19 @@
 import { resolve } from "node:path";
 
 import {
-  toConversationMessageMeta,
-  type ConversationMessageLike,
-  type ConversationMessageMeta,
+  type ConversationSdkSessionMessage,
   type ConversationSessionMeta,
 } from "../domain/conversation";
 import type { OpenCodeRuntime } from "./opencode-runtime";
+import { noopRuntimeLogger, toStructuredError, type RuntimeLogger } from "./runtime-logger";
 
 type RuntimeClientProvider = Pick<OpenCodeRuntime, "getClient">;
+
+type ConversationModelSelection = NonNullable<SendInitialPromptInput["model"]>;
+
+export type ConversationManagerOptions = {
+  logger?: RuntimeLogger;
+};
 
 type ConversationApiResponse<TData> = {
   data?: TData;
@@ -62,10 +67,10 @@ export type PromptSubmission = {
 
 export type PromptExecutionResult = {
   submission: PromptSubmission;
-  messages: ConversationMessageMeta[];
+  sdkMessages: ConversationSdkSessionMessage[];
 };
 
-type PromptMessageHandler = (message: ConversationMessageMeta) => void;
+type PromptMessageHandler = (message: ConversationSdkSessionMessage) => void;
 
 export type ListConversationMessagesInput = {
   sessionID: string;
@@ -90,12 +95,15 @@ type EventSubscribeHandle = {
 
 export class ConversationManager {
   private readonly runtime: RuntimeClientProvider;
+  private readonly logger: RuntimeLogger;
   private readonly taskToSessionID = new Map<string, string>();
   private readonly sessionToDirectory = new Map<string, string>();
+  private readonly sessionToModel = new Map<string, ConversationModelSelection>();
   private readonly sessionsByID = new Map<string, ConversationSessionMeta>();
 
-  constructor(runtime: RuntimeClientProvider) {
+  constructor(runtime: RuntimeClientProvider, options: ConversationManagerOptions = {}) {
     this.runtime = runtime;
+    this.logger = options.logger ?? noopRuntimeLogger;
   }
 
   async createTaskSession(input: CreateConversationSessionInput): Promise<ConversationSessionMeta> {
@@ -134,250 +142,40 @@ export class ConversationManager {
     return session;
   }
 
-  async sendInitialPrompt(input: SendInitialPromptInput): Promise<PromptSubmission> {
-    return this.sendPrompt(input, "Failed to send initial prompt");
-  }
-
   async sendInitialPromptAndAwaitMessages(
     input: SendInitialPromptInput & { timeoutMs?: number; onMessage?: PromptMessageHandler },
   ): Promise<PromptExecutionResult> {
-    const sessionID = normalizeSessionID(input.sessionID);
-    const prompt = normalizePrompt(input.prompt);
-    const worktreeDirectory = this.resolveDirectoryForSession(sessionID, input.worktreeDirectory);
-    const client = await this.runtime.getClient(worktreeDirectory);
-    const timeoutMs = normalizeOptionalTimeout(input.timeoutMs, 45_000);
-    const resolvedModel = await this.resolvePromptModel(client, worktreeDirectory, input.model);
-    const resolvedAgent = normalizeOptionalAgent(input.agent);
-    const onMessage = input.onMessage;
-    const existingMessages = await this.listConversationMessages({
-      sessionID,
-      worktreeDirectory,
-    });
-    const knownMessageStates = new Map(
-      existingMessages.map((message) => [message.id, toMessageStateSignature(message)]),
+    return this.sendPromptAndAwaitMessages(
+      input,
+      "Failed to send initial prompt",
+      "conversation-manager.prompt.initial",
     );
-    const relevantMessages: ConversationMessageMeta[] = [];
-    let lastPollAt = 0;
-
-    const pollForNewMessages = async (force = false): Promise<void> => {
-      const now = Date.now();
-      if (!force && now - lastPollAt < 750) {
-        return;
-      }
-
-      lastPollAt = now;
-      const newlyObserved = await this.collectMessageChanges({
-        sessionID,
-        worktreeDirectory,
-        knownMessageStates,
-      });
-
-      for (const message of newlyObserved) {
-        relevantMessages.push(message);
-        onMessage?.(message);
-      }
-    };
-
-    const subscribeResult = await client.event.subscribe({
-      directory: worktreeDirectory,
-    });
-    const eventStream = extractEventStream(subscribeResult);
-    const iterator = eventStream[Symbol.asyncIterator]();
-
-    const submittedAt = Date.now();
-
-    const promptResponse = await client.session.promptAsync({
-      sessionID,
-      parts: [{ type: "text", text: prompt }],
-      ...(resolvedAgent ? { agent: resolvedAgent } : {}),
-      model: resolvedModel,
-    });
-
-    if (promptResponse.error) {
-      throw new Error(`Failed to send initial prompt: ${formatUnknownError(promptResponse.error)}`);
-    }
-
-    const existing = this.sessionsByID.get(sessionID);
-    if (existing) {
-      this.sessionsByID.set(sessionID, {
-        ...existing,
-        updatedAt: submittedAt,
-        lastMessageAt: submittedAt,
-      });
-    }
-
-    try {
-      const idleResult = await waitForSessionIdle(iterator, sessionID, timeoutMs, {
-        onSessionEvent: async (event) => {
-          if (isMessageStreamEvent(event.type)) {
-            await pollForNewMessages(true);
-          }
-        },
-        onTick: async () => {
-          await pollForNewMessages(false);
-        },
-      });
-      if (idleResult.errorMessage) {
-        throw new Error(idleResult.errorMessage);
-      }
-
-      await pollForNewMessages(true);
-
-      if (!idleResult.idle && relevantMessages.length === 0) {
-        throw new Error(`No assistant response received within ${timeoutMs}ms for session ${sessionID}.`);
-      }
-    } finally {
-      await iterator.return?.();
-    }
-
-    await pollForNewMessages(true);
-    const hasAssistantMessage = relevantMessages.some((message) => message.role === "assistant");
-
-    if (!hasAssistantMessage) {
-      throw new Error(`No assistant response received within ${timeoutMs}ms for session ${sessionID}.`);
-    }
-
-    return {
-      submission: {
-        sessionID,
-        prompt,
-        submittedAt,
-      },
-      messages: relevantMessages,
-    };
-  }
-
-  async sendFollowUpPrompt(input: SendFollowUpPromptInput): Promise<PromptSubmission> {
-    return this.sendPrompt(input, "Failed to send follow-up prompt");
   }
 
   async sendFollowUpPromptAndAwaitMessages(
     input: SendFollowUpPromptInput & { timeoutMs?: number; onMessage?: PromptMessageHandler },
   ): Promise<PromptExecutionResult> {
-    const sessionID = normalizeSessionID(input.sessionID);
-    const prompt = normalizePrompt(input.prompt);
-    const worktreeDirectory = this.resolveDirectoryForSession(sessionID, input.worktreeDirectory);
-    const client = await this.runtime.getClient(worktreeDirectory);
-    const timeoutMs = normalizeOptionalTimeout(input.timeoutMs, 45_000);
-    const resolvedModel = await this.resolvePromptModel(client, worktreeDirectory, input.model);
-    const resolvedAgent = normalizeOptionalAgent(input.agent);
-    const onMessage = input.onMessage;
-    const existingMessages = await this.listConversationMessages({
-      sessionID,
-      worktreeDirectory,
-    });
-    const knownMessageStates = new Map(
-      existingMessages.map((message) => [message.id, toMessageStateSignature(message)]),
+    return this.sendPromptAndAwaitMessages(
+      input,
+      "Failed to send follow-up prompt",
+      "conversation-manager.prompt.followup",
     );
-    const relevantMessages: ConversationMessageMeta[] = [];
-    let lastPollAt = 0;
-
-    const pollForNewMessages = async (force = false): Promise<void> => {
-      const now = Date.now();
-      if (!force && now - lastPollAt < 750) {
-        return;
-      }
-
-      lastPollAt = now;
-      const newlyObserved = await this.collectMessageChanges({
-        sessionID,
-        worktreeDirectory,
-        knownMessageStates,
-      });
-
-      for (const message of newlyObserved) {
-        relevantMessages.push(message);
-        onMessage?.(message);
-      }
-    };
-
-    const subscribeResult = await client.event.subscribe({
-      directory: worktreeDirectory,
-    });
-    const eventStream = extractEventStream(subscribeResult);
-    const iterator = eventStream[Symbol.asyncIterator]();
-
-    const submittedAt = Date.now();
-
-    const promptResponse = await client.session.promptAsync({
-      sessionID,
-      parts: [{ type: "text", text: prompt }],
-      ...(resolvedAgent ? { agent: resolvedAgent } : {}),
-      model: resolvedModel,
-    });
-
-    if (promptResponse.error) {
-      throw new Error(`Failed to send follow-up prompt: ${formatUnknownError(promptResponse.error)}`);
-    }
-
-    const existing = this.sessionsByID.get(sessionID);
-    if (existing) {
-      this.sessionsByID.set(sessionID, {
-        ...existing,
-        updatedAt: submittedAt,
-        lastMessageAt: submittedAt,
-      });
-    }
-
-    try {
-      const idleResult = await waitForSessionIdle(iterator, sessionID, timeoutMs, {
-        onSessionEvent: async (event) => {
-          if (isMessageStreamEvent(event.type)) {
-            await pollForNewMessages(true);
-          }
-        },
-        onTick: async () => {
-          await pollForNewMessages(false);
-        },
-      });
-      if (idleResult.errorMessage) {
-        throw new Error(idleResult.errorMessage);
-      }
-
-      await pollForNewMessages(true);
-
-      if (!idleResult.idle && relevantMessages.length === 0) {
-        throw new Error(`No assistant response received within ${timeoutMs}ms for session ${sessionID}.`);
-      }
-    } finally {
-      await iterator.return?.();
-    }
-
-    await pollForNewMessages(true);
-    const hasAssistantMessage = relevantMessages.some((message) => message.role === "assistant");
-
-    if (!hasAssistantMessage) {
-      throw new Error(`No assistant response received within ${timeoutMs}ms for session ${sessionID}.`);
-    }
-
-    return {
-      submission: {
-        sessionID,
-        prompt,
-        submittedAt,
-      },
-      messages: relevantMessages,
-    };
   }
 
   async listConversationMessages(
     input: ListConversationMessagesInput,
-  ): Promise<ConversationMessageMeta[]> {
+  ): Promise<ConversationSdkSessionMessage[]> {
     const sessionID = normalizeSessionID(input.sessionID);
     const worktreeDirectory = this.resolveDirectoryForSession(sessionID, input.worktreeDirectory);
     const client = await this.runtime.getClient(worktreeDirectory);
-    const messages = await readDataOrThrow<unknown[]>(
+    const messages = await readDataOrThrow<ConversationSdkSessionMessage[]>(
       client.session.messages({
         sessionID,
       }),
       "Failed to list conversation messages",
     );
 
-    const normalizedMessages = messages.map((message, index) =>
-      normalizeMessageLike(message, sessionID, index),
-    );
-
-    return normalizedMessages.map((message) => toConversationMessageMeta(message));
+    return messages;
   }
 
   async subscribeToEvents(
@@ -415,30 +213,83 @@ export class ConversationManager {
     return this.sessionsByID.get(normalizeSessionID(sessionID));
   }
 
-  private async sendPrompt(
-    input: SendInitialPromptInput | SendFollowUpPromptInput,
+  private async sendPromptAndAwaitMessages(
+    input: SendInitialPromptInput & { timeoutMs?: number; onMessage?: PromptMessageHandler },
     failureMessage: string,
-  ): Promise<PromptSubmission> {
+    logSource: string,
+  ): Promise<PromptExecutionResult> {
     const sessionID = normalizeSessionID(input.sessionID);
     const prompt = normalizePrompt(input.prompt);
     const worktreeDirectory = this.resolveDirectoryForSession(sessionID, input.worktreeDirectory);
     const client = await this.runtime.getClient(worktreeDirectory);
-    const resolvedModel = await this.resolvePromptModel(client, worktreeDirectory, input.model);
+    const timeoutMs = normalizeOptionalTimeout(input.timeoutMs, 45_000);
+    const fallbackModel = input.model ?? this.sessionToModel.get(sessionID);
+    const resolvedModel = await this.resolvePromptModel(client, worktreeDirectory, fallbackModel);
+    if (resolvedModel) {
+      this.sessionToModel.set(sessionID, resolvedModel);
+    }
     const resolvedAgent = normalizeOptionalAgent(input.agent);
-
-    await readDataOrThrow<unknown>(
-      client.session.prompt({
-        sessionID,
-        parts: [{ type: "text", text: prompt }],
-        ...(resolvedAgent ? { agent: resolvedAgent } : {}),
-        model: resolvedModel,
-      }),
-      failureMessage,
+    const onMessage = input.onMessage;
+    const existingMessages = await this.listConversationMessages({
+      sessionID,
+      worktreeDirectory,
+    });
+    const knownMessageStates = new Map(
+      existingMessages.map((message) => [message.info.id, toMessageStateSignature(message)]),
     );
+    const relevantMessages: ConversationSdkSessionMessage[] = [];
 
+    const pollForNewMessages = async (): Promise<void> => {
+      const newlyObserved = await this.collectMessageChanges({
+        sessionID,
+        worktreeDirectory,
+        knownMessageStates,
+      });
+
+      for (const message of newlyObserved) {
+        relevantMessages.push(message);
+        onMessage?.(message);
+      }
+    };
+
+    this.logger.log({
+      level: "debug",
+      source: logSource,
+      message: "Subscribing to conversation events.",
+      context: {
+        sessionID,
+        worktreeDirectory,
+      },
+    });
+
+    const subscribeResult = await client.event.subscribe({
+      directory: worktreeDirectory,
+    });
+    const eventStream = extractEventStream(subscribeResult);
+    const iterator = eventStream[Symbol.asyncIterator]();
     const submittedAt = Date.now();
-    const existing = this.sessionsByID.get(sessionID);
 
+    const promptResponse = await client.session.promptAsync({
+      sessionID,
+      parts: [{ type: "text", text: prompt }],
+      ...(resolvedAgent ? { agent: resolvedAgent } : {}),
+      model: resolvedModel,
+    });
+
+    if (promptResponse.error) {
+      this.logger.log({
+        level: "error",
+        source: logSource,
+        message: "Prompt async submission failed.",
+        context: {
+          sessionID,
+        },
+        error: toStructuredError(promptResponse.error),
+      });
+      throw new Error(`${failureMessage}: ${formatUnknownError(promptResponse.error)}`);
+    }
+
+    const existing = this.sessionsByID.get(sessionID);
     if (existing) {
       this.sessionsByID.set(sessionID, {
         ...existing,
@@ -447,10 +298,75 @@ export class ConversationManager {
       });
     }
 
+    try {
+      const idleResult = await waitForSessionIdle(iterator, sessionID, timeoutMs, {
+        onEvent: async (event) => {
+          this.logger.log({
+            level: "debug",
+            source: logSource,
+            message: "Conversation event received.",
+            context: {
+              sessionID,
+              eventType: event.type,
+              eventSessionID: extractEventSessionID(event),
+            },
+          });
+        },
+        onSessionEvent: async (event) => {
+          if (isMessageStreamEvent(event.type)) {
+            await pollForNewMessages();
+          }
+        },
+        onTick: async () => {
+          await pollForNewMessages();
+        },
+      });
+
+      if (idleResult.errorMessage) {
+        this.logger.log({
+          level: "error",
+          source: logSource,
+          message: "Session returned error event while awaiting idle.",
+          context: {
+            sessionID,
+          },
+        });
+        throw new Error(idleResult.errorMessage);
+      }
+
+      await pollForNewMessages();
+
+      if (!idleResult.idle && relevantMessages.length === 0) {
+        throw new Error(`No assistant response received within ${timeoutMs}ms for session ${sessionID}.`);
+      }
+    } finally {
+      await iterator.return?.();
+    }
+
+    await pollForNewMessages();
+    const hasAssistantMessage = relevantMessages.some((message) => message.info.role === "assistant");
+
+    if (!hasAssistantMessage) {
+      throw new Error(`No assistant response received within ${timeoutMs}ms for session ${sessionID}.`);
+    }
+
+    this.logger.log({
+      level: "debug",
+      source: logSource,
+      message: "Prompt completed with assistant response.",
+      context: {
+        sessionID,
+        messageCount: relevantMessages.length,
+      },
+    });
+
     return {
-      sessionID,
-      prompt,
-      submittedAt,
+      submission: {
+        sessionID,
+        prompt,
+        submittedAt,
+      },
+      sdkMessages: relevantMessages,
     };
   }
 
@@ -458,22 +374,22 @@ export class ConversationManager {
     sessionID: string;
     worktreeDirectory: string;
     knownMessageStates: Map<string, string>;
-  }): Promise<ConversationMessageMeta[]> {
+  }): Promise<ConversationSdkSessionMessage[]> {
     const messages = await this.listConversationMessages({
       sessionID: input.sessionID,
       worktreeDirectory: input.worktreeDirectory,
     });
 
-    const changes: ConversationMessageMeta[] = [];
+    const changes: ConversationSdkSessionMessage[] = [];
     for (const message of messages) {
       const signature = toMessageStateSignature(message);
-      const previousSignature = input.knownMessageStates.get(message.id);
+      const previousSignature = input.knownMessageStates.get(message.info.id);
 
       if (previousSignature === signature) {
         continue;
       }
 
-      input.knownMessageStates.set(message.id, signature);
+      input.knownMessageStates.set(message.info.id, signature);
       changes.push(message);
     }
 
@@ -519,13 +435,15 @@ export class ConversationManager {
 
     const providers = providersResponse.providers ?? [];
     const defaultByProvider = providersResponse.default ?? {};
-    const preferredProviders = ["openai", "anthropic", "google", "opencode"];
-    const preferredOrder = [
-      ...preferredProviders,
-      ...Object.keys(defaultByProvider).filter((providerID) => !preferredProviders.includes(providerID)),
+    const providerOrder = providers
+      .map((provider) => provider.id?.trim())
+      .filter((providerID): providerID is string => Boolean(providerID));
+    const candidateProviders = [
+      ...providerOrder,
+      ...Object.keys(defaultByProvider).filter((providerID) => !providerOrder.includes(providerID)),
     ];
 
-    for (const providerID of preferredOrder) {
+    for (const providerID of candidateProviders) {
       const modelID = defaultByProvider[providerID];
       if (!modelID) {
         continue;
@@ -544,71 +462,6 @@ export class ConversationManager {
 
     return undefined;
   }
-}
-
-function normalizeMessageLike(raw: unknown, sessionID: string, index: number): ConversationMessageLike {
-  const message = asRecord(raw);
-  const info = asRecord(message?.info);
-  const time = asRecord(info?.time);
-
-  const id =
-    typeof info?.id === "string" && info.id.trim()
-      ? info.id
-      : typeof message?.id === "string" && message.id.trim()
-        ? message.id
-        : `${sessionID}:${index}`;
-  const role =
-    typeof info?.role === "string"
-      ? info.role
-      : typeof message?.role === "string"
-        ? message.role
-        : "assistant";
-  const createdAt = normalizeOptionalTimestamp(time?.created ?? message?.createdAt, Date.now());
-  const parts = normalizeMessageParts(message?.parts);
-
-  return {
-    id,
-    sessionID,
-    role,
-    createdAt,
-    parts,
-    error: message?.error,
-  };
-}
-
-function normalizeMessageParts(value: unknown): Array<{ text?: string }> {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  const parts: Array<{ text?: string }> = [];
-
-  for (const part of value) {
-    if (typeof part === "string") {
-      parts.push({ text: part });
-      continue;
-    }
-
-    const partRecord = asRecord(part);
-    if (!partRecord) {
-      parts.push({});
-      continue;
-    }
-
-    if (typeof partRecord.text === "string") {
-      parts.push({ text: partRecord.text });
-      continue;
-    }
-
-    if (typeof partRecord.content === "string") {
-      parts.push({ text: partRecord.content });
-      continue;
-    }
-
-    parts.push({});
-  }
-
-  return parts;
 }
 
 function toAsyncUnsubscribe(payload: unknown, onEvent?: (event: unknown) => void): () => Promise<void> {
@@ -825,6 +678,7 @@ async function waitForSessionIdle(
   sessionID: string,
   timeoutMs: number,
   hooks?: {
+    onEvent?: (event: { type: string; properties?: unknown }) => Promise<void>;
     onSessionEvent?: (event: { type: string; properties?: unknown }) => Promise<void>;
     onTick?: () => Promise<void>;
   },
@@ -832,8 +686,6 @@ async function waitForSessionIdle(
   const deadline = Date.now() + timeoutMs;
   let nextDeadline = deadline;
   let sawSessionActivity = false;
-  const childSessionIDs = new Set<string>();
-  const activeChildSessionIDs = new Set<string>();
 
   while (Date.now() < nextDeadline) {
     const remainingMs = Math.max(1, nextDeadline - Date.now());
@@ -853,22 +705,9 @@ async function waitForSessionIdle(
       continue;
     }
 
-    const sessionInfo = extractSessionInfo(normalizedEvent);
-    if (sessionInfo?.parentID === sessionID) {
-      childSessionIDs.add(sessionInfo.id);
-      if (normalizedEvent.type === "session.deleted") {
-        activeChildSessionIDs.delete(sessionInfo.id);
-      } else {
-        activeChildSessionIDs.add(sessionInfo.id);
-      }
-    }
+    await hooks?.onEvent?.(normalizedEvent);
 
     const eventSessionID = extractEventSessionID(normalizedEvent);
-    if (eventSessionID && childSessionIDs.has(eventSessionID)) {
-      updateChildSessionActivity(activeChildSessionIDs, normalizedEvent, eventSessionID);
-      continue;
-    }
-
     if (eventSessionID !== sessionID) {
       continue;
     }
@@ -898,10 +737,7 @@ async function waitForSessionIdle(
         continue;
       }
 
-      if (activeChildSessionIDs.size === 0) {
-        return { idle: true };
-      }
-      continue;
+      return { idle: true };
     }
 
     sawSessionActivity = true;
@@ -910,52 +746,6 @@ async function waitForSessionIdle(
   await hooks?.onTick?.();
 
   return { idle: false };
-}
-
-function extractSessionInfo(
-  event: { type: string; properties?: unknown },
-): { id: string; parentID?: string } | undefined {
-  if (event.type !== "session.created" && event.type !== "session.updated" && event.type !== "session.deleted") {
-    return undefined;
-  }
-
-  const properties = asRecord(event.properties);
-  const info = asRecord(properties?.info);
-  if (!info || typeof info.id !== "string") {
-    return undefined;
-  }
-
-  return {
-    id: info.id,
-    parentID: typeof info.parentID === "string" ? info.parentID : undefined,
-  };
-}
-
-function updateChildSessionActivity(
-  activeChildSessionIDs: Set<string>,
-  event: { type: string; properties?: unknown },
-  eventSessionID: string,
-): void {
-  if (
-    event.type === "session.idle" ||
-    event.type === "session.completed" ||
-    event.type === "session.deleted" ||
-    event.type === "session.error"
-  ) {
-    activeChildSessionIDs.delete(eventSessionID);
-    return;
-  }
-
-  if (event.type === "session.status") {
-    const properties = asRecord(event.properties);
-    const status = asRecord(properties?.status);
-    if (status?.type === "idle" || status?.type === "completed" || status?.type === "done") {
-      activeChildSessionIDs.delete(eventSessionID);
-      return;
-    }
-
-    activeChildSessionIDs.add(eventSessionID);
-  }
 }
 
 function isMessageStreamEvent(type: string): boolean {
@@ -967,13 +757,18 @@ function isMessageStreamEvent(type: string): boolean {
   );
 }
 
-function toMessageStateSignature(message: ConversationMessageMeta): string {
+function toMessageStateSignature(message: ConversationSdkSessionMessage): string {
+  const preview = message.parts
+    .map((part) => (part.type === "text" ? part.text : ""))
+    .join("")
+    .trim();
+
   return JSON.stringify({
-    role: message.role,
-    createdAt: message.createdAt,
-    preview: message.preview,
-    partCount: message.partCount,
-    hasError: message.hasError,
+    role: message.info.role,
+    createdAt: message.info.time.created,
+    preview,
+    partCount: message.parts.length,
+    hasError: message.info.role === "assistant" && message.info.error != null,
   });
 }
 

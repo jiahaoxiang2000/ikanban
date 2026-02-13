@@ -1,4 +1,5 @@
 import type { TaskState } from "../domain/task";
+import type { ConversationSdkSessionMessage } from "../domain/conversation";
 import type { WorktreeCleanupPolicy } from "./worktree-manager";
 
 export type RuntimeEventMap = {
@@ -68,10 +69,7 @@ export type RuntimeEventMap = {
     taskId: string;
     projectId: string;
     sessionID: string;
-    messageID: string;
-    createdAt: number;
-    preview: string;
-    role: string;
+    sdkMessage: ConversationSdkSessionMessage;
   };
   "log.appended": {
     level: "debug" | "info" | "warn" | "error";
@@ -305,8 +303,10 @@ function toDefaultLogMessage(event: RuntimeEventEnvelope<Exclude<RuntimeEventTyp
       return `Session ${String(payload.sessionID)} created.`;
     case "session.prompt.submitted":
       return `Prompt submitted to session ${String(payload.sessionID)}.`;
-    case "session.message.received":
-      return `Message ${String(payload.messageID)} received for session ${String(payload.sessionID)}.`;
+    case "session.message.received": {
+      const messagePayload = payload as RuntimeEventMap["session.message.received"];
+      return `Message ${String(messagePayload.sdkMessage.info.id)} received for session ${String(payload.sessionID)}.`;
+    }
   }
 }
 

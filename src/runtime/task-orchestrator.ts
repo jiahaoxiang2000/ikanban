@@ -1,5 +1,5 @@
 import type { ConversationSessionMeta } from "../domain/conversation";
-import type { ConversationMessageMeta } from "../domain/conversation";
+import type { ConversationSdkSessionMessage } from "../domain/conversation";
 import {
   assertTaskRuntimeInvariants,
   assertTaskStateTransition,
@@ -115,7 +115,7 @@ export type TaskOrchestratorEvent =
       type: "task.session.message.received";
       taskId: string;
       sessionID: string;
-      message: ConversationMessageMeta;
+      sdkMessage: ConversationSdkSessionMessage;
     }
   | {
       type: "task.cleanup.completed";
@@ -301,7 +301,7 @@ export class TaskOrchestrator {
             type: "task.session.message.received",
             taskId: normalizedTaskId,
             sessionID: task.sessionID!,
-            message,
+            sdkMessage: message,
           });
         },
       });
@@ -525,7 +525,7 @@ export class TaskOrchestrator {
             type: "task.session.message.received",
             taskId,
             sessionID: createdSession.sessionID,
-            message,
+            sdkMessage: message,
           });
         },
       });

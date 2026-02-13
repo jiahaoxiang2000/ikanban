@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 
 import type { ProjectRef } from "../domain/project";
+import type { ConversationSdkSessionMessage } from "../domain/conversation";
 import type { TaskRuntime } from "../domain/task";
 import type { RuntimeEventMap, RuntimeLogEntry } from "../runtime/event-bus";
 import { ProjectRegistry } from "../runtime/project-registry";
@@ -28,10 +29,7 @@ type StatusBanner = {
 };
 
 type TaskSessionMessage = {
-  messageID: string;
-  role: string;
-  preview: string;
-  createdAt: number;
+  sdkMessage: ConversationSdkSessionMessage;
 };
 
 type PromptModel = NonNullable<RunTaskInput["model"]>;
@@ -284,13 +282,10 @@ export function App({
       setSessionMessagesByTaskID((current) => {
         const existing = current[payload.taskId] ?? [];
         const nextMessage = {
-          messageID: payload.messageID,
-          role: payload.role,
-          preview: payload.preview,
-          createdAt: payload.createdAt,
+          sdkMessage: payload.sdkMessage,
         };
         const existingIndex = existing.findIndex(
-          (message) => message.messageID === payload.messageID,
+          (message) => message.sdkMessage.info.id === payload.sdkMessage.info.id,
         );
 
         if (existingIndex >= 0) {
@@ -300,9 +295,9 @@ export function App({
           }
 
           if (
-            previous.role === nextMessage.role &&
-            previous.preview === nextMessage.preview &&
-            previous.createdAt === nextMessage.createdAt
+            previous.sdkMessage.info.time.created === nextMessage.sdkMessage.info.time.created &&
+            getSdkMessageRole(previous.sdkMessage) === getSdkMessageRole(nextMessage.sdkMessage) &&
+            getSdkMessagePreview(previous.sdkMessage) === getSdkMessagePreview(nextMessage.sdkMessage)
           ) {
             return current;
           }
@@ -797,6 +792,27 @@ export function App({
     }
 
     if (isLogViewOpen) {
+      // Use arrow keys for log scrolling (VirtualList may capture j/k)
+      if (key.upArrow) {
+        scrollLogsUp(LOG_SCROLL_STEP);
+        return;
+      }
+
+      if (key.downArrow) {
+        scrollLogsDown(LOG_SCROLL_STEP);
+        return;
+      }
+
+      if (key.pageUp) {
+        scrollLogsUp(LOG_SCROLL_PAGE);
+        return;
+      }
+
+      if (key.pageDown) {
+        scrollLogsDown(LOG_SCROLL_PAGE);
+        return;
+      }
+
       if (input === "u") {
         scrollLogsUp(LOG_SCROLL_PAGE);
         return;
@@ -1246,11 +1262,11 @@ export function App({
                 {taskMessages.length > 0 ? (
                   taskMessages.slice(-6).map((message) => (
                     <Text
-                      key={message.messageID}
-                      color={message.role === "assistant" ? "green" : undefined}
+                      key={message.sdkMessage.info.id}
+                      color={getSdkMessageRole(message.sdkMessage) === "assistant" ? "green" : undefined}
                     >
-                      [{message.role}]{" "}
-                      {truncate(message.preview || "(no text preview)", 120)}
+                      [{getSdkMessageRole(message.sdkMessage)}]{" "}
+                      {truncate(getSdkMessagePreview(message.sdkMessage) || "(no text preview)", 120)}
                     </Text>
                   ))
                 ) : (
@@ -1452,10 +1468,7 @@ function relayOrchestratorEvent(
         taskId: event.taskId,
         projectId: resolveProjectID(event.taskId),
         sessionID: event.sessionID,
-        messageID: event.message.id,
-        createdAt: event.message.createdAt,
-        preview: event.message.preview,
-        role: event.message.role,
+        sdkMessage: event.sdkMessage,
       });
       return;
     }
@@ -1502,6 +1515,17 @@ function relayOrchestratorEvent(
       return;
     }
   }
+}
+
+function getSdkMessageRole(message: ConversationSdkSessionMessage): string {
+  return message.info.role;
+}
+
+function getSdkMessagePreview(message: ConversationSdkSessionMessage): string {
+  return message.parts
+    .map((part) => (part.type === "text" ? part.text : ""))
+    .join("")
+    .trim();
 }
 
 function createTaskID(seed: string, prompt?: string): string {

@@ -1,6 +1,4 @@
-export const CONVERSATION_ROLES = ["system", "user", "assistant", "tool"] as const;
-
-export type ConversationRole = (typeof CONVERSATION_ROLES)[number];
+import type { Part, Session, SessionMessagesResponses } from "@opencode-ai/sdk/v2/client";
 
 export type ConversationSessionMeta = {
   sessionID: string;
@@ -13,42 +11,12 @@ export type ConversationSessionMeta = {
   lastMessageAt?: number;
 };
 
-export type ConversationMessageMeta = {
-  id: string;
-  sessionID: string;
-  role: ConversationRole;
-  createdAt: number;
-  partCount: number;
-  preview: string;
-  hasError: boolean;
-};
+type SdkMessageInfoCore = Pick<ConversationSdkSessionMessage["info"], "id" | "sessionID" | "role">;
 
-export type ConversationMessageLike = {
-  id: string;
-  sessionID: string;
-  role: string;
-  createdAt: number;
-  parts?: readonly { text?: string }[];
-  error?: unknown;
-};
-
-export function isConversationRole(value: string): value is ConversationRole {
-  return (CONVERSATION_ROLES as readonly string[]).includes(value);
-}
-
-export function toConversationMessageMeta(message: ConversationMessageLike): ConversationMessageMeta {
-  const preview = message.parts?.map((part) => part.text ?? "").join("").trim() ?? "";
-
-  return {
-    id: message.id,
-    sessionID: message.sessionID,
-    role: isConversationRole(message.role) ? message.role : "assistant",
-    createdAt: message.createdAt,
-    partCount: message.parts?.length ?? 0,
-    preview,
-    hasError: message.error != null,
-  };
-}
+export type ConversationSdkSession = Session;
+export type ConversationSdkPart = Part;
+export type ConversationSdkSessionMessage = SessionMessagesResponses[200][number];
+export type ConversationMessageMeta = SdkMessageInfoCore;
 
 export function updateSessionActivity(
   session: ConversationSessionMeta,
