@@ -120,6 +120,13 @@ export class TaskRegistry {
           typeof taskLike.worktreeDirectory === "string" ? taskLike.worktreeDirectory : undefined,
         sessionID: typeof taskLike.sessionID === "string" ? taskLike.sessionID : undefined,
         error: typeof taskLike.error === "string" ? taskLike.error : undefined,
+        model:
+          typeof taskLike.model === "object" &&
+          taskLike.model !== null &&
+          typeof (taskLike.model as Record<string, unknown>).providerID === "string" &&
+          typeof (taskLike.model as Record<string, unknown>).modelID === "string"
+            ? { providerID: String((taskLike.model as Record<string, unknown>).providerID), modelID: String((taskLike.model as Record<string, unknown>).modelID) }
+            : undefined,
         createdAt: Number(taskLike.createdAt),
         updatedAt: Number(taskLike.updatedAt),
       };

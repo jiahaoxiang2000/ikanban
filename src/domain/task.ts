@@ -17,6 +17,10 @@ export type TaskRuntime = {
   worktreeDirectory?: string;
   sessionID?: string;
   error?: string;
+  model?: {
+    providerID: string;
+    modelID: string;
+  };
   createdAt: number;
   updatedAt: number;
 };

@@ -207,6 +207,7 @@ export class TaskOrchestrator {
       taskId,
       projectId: normalizeOptionalId(input.projectId) ?? "pending",
       state: "queued",
+      model: input.model,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -513,6 +514,7 @@ export class TaskOrchestrator {
 
       runtime = this.transitionTaskWithPatch(taskId, "running", {
         sessionID: createdSession.sessionID,
+        model: entry.input.model,
       });
 
       const promptExecution = await this.conversationManager.sendInitialPromptAndAwaitMessages({
